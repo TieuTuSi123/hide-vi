@@ -291,14 +291,7 @@ function centerPopup($popup) {
 
 // Lấy ngữ cảnh đã được tối ưu
 function getContextOptimized() {
-    if (!cachedContext) {
-        Logger.debug('Ngữ cảnh không có sẵn trong bộ nhớ đệm, đang lấy mới...');
-        cachedContext = getContext(); // getContext trả về đối tượng giàu thông tin
-        Logger.debug('Ngữ cảnh đã được lấy');
-    } else {
-        Logger.debug('Sử dụng ngữ cảnh từ bộ nhớ đệm');
-    }
-    return cachedContext;
+    return getContext();
 }
 
 // Hàm hỗ trợ: Lấy ID thực thể duy nhất của ngữ cảnh hiện tại
@@ -2489,20 +2482,24 @@ function setupEventListeners() {
         Logger.debug('');
     });
 
-    // Sự kiện kết thúc quá trình tạo văn bản, bảo đảm tính nhất quán sau cùng
+    // Sự kiện kết thúc tạo văn bản hoặc Reroll/Swipe - Luôn ép kiểm tra ẩn ngay lập tức
     const streamEndEvent = event_types.GENERATION_ENDED;
     eventSource.on(streamEndEvent, () => {
-        Logger.debug('');
         Logger.debug('🏁【Sự kiện】GENERATION_ENDED - Quá trình tạo đã kết thúc');
-        // Chạy một lần kiểm tra toàn diện để sửa chữa bất kỳ vấn đề nào phát sinh trong quá trình cập nhật tăng dần
         if (extension_settings[extensionName]?.enabled) {
-            Logger.debug('🏁【Sự kiện】Tiện ích đang bật, thực thi kiểm tra toàn lượng để đảm bảo tính nhất quán');
-            runFullHideCheckDebounced();
-        } else {
-            Logger.debug('🏁【Sự kiện】Tiện ích chưa bật, bỏ qua kiểm tra ẩn');
+            // Chạy trực tiếp kiểm tra toàn lượng không qua debounce để tránh bị nuốt lệnh
+            runFullHideCheck();
         }
-        Logger.debug('');
     });
+
+    // Bổ sung: Lắng nghe thêm sự kiện khi Swipe/Reroll đổi tin nhắn
+    if (event_types.MESSAGE_SWIPED) {
+        eventSource.on(event_types.MESSAGE_SWIPED, () => {
+            if (extension_settings[extensionName]?.enabled) {
+                runFullHideCheck();
+            }
+        });
+    }
 
     // ============================================================
     // Ngăn chặn thao tác trên popup làm đóng panel extensions của SillyTavern phía sau
