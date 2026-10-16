@@ -1,6 +1,6 @@
-/* --- CSS变量定义 --- */
+/* --- Định nghĩa biến CSS --- */
 :root {
-    /* ==================== 白天主题变量定义 ==================== */
+    /* ==================== Định nghĩa biến giao diện Sáng ==================== */
     --light-background-popup: rgba(255, 255, 255, 1);
     --light-background-secondary: rgba(241, 243, 245, 1);
     --light-border-color: rgba(222, 226, 230, 1);
@@ -28,7 +28,7 @@
     --light-danger-color: rgba(148, 0, 211, 0.3);
     --light-danger-color-hover: rgba(200, 35, 51, 1);
 
-    /* ==================== 黑夜主题变量定义 ==================== */
+    /* ==================== Định nghĩa biến giao diện Tối ==================== */
     --dark-background-popup: rgba(30, 30, 30, 1);
     --dark-background-secondary: rgba(45, 45, 45, 1);
     --dark-border-color: rgba(64, 64, 64, 1);
@@ -56,7 +56,7 @@
     --dark-danger-color: rgb(216, 168, 231, 0.95);
     --dark-danger-color-hover: rgb(216, 168, 231, 0.95);
 
-    /* ==================== 当前主题变量（默认白天，增加 hh- 前缀隔离） ==================== */
+    /* ==================== Biến giao diện hiện tại (Mặc định Sáng, thêm tiền tố hh- để cô lập) ==================== */
     --hh-background-popup: var(--light-background-popup);
     --hh-background-secondary: var(--light-background-secondary);
     --hh-border-color: var(--light-border-color);
@@ -82,7 +82,7 @@
     --hh-danger-color: var(--light-danger-color);
     --hh-danger-color-hover: var(--light-danger-color-hover);
 
-    /* 通用基础颜色 (加上隔离前缀) */
+    /* Màu sắc cơ bản dùng chung (Thêm tiền tố cô lập) */
     --hh-color-white: rgba(255, 255, 255, 1);
     --hh-color-black-overlay: rgba(0, 0, 0, 0.3);
     --hh-color-black-shadow: rgba(0, 0, 0, 0.1);
@@ -98,7 +98,7 @@
     --hh-stats-green-dark: rgba(34, 197, 94, 1);
 }
 
-/* --- 暗色主题变量切换 (限定只在带有属性的插件容器内生效) --- */
+/* --- Chuyển đổi biến giao diện Tối (Chỉ có hiệu lực bên trong vùng chứa tiện ích có thuộc tính tương ứng) --- */
 #hide-helper-popup[data-theme="dark"], 
 .hide-modal-overlay[data-theme="dark"], 
 .hide-helper-notification-popup[data-theme="dark"] {
@@ -128,7 +128,7 @@
     --hh-danger-color-hover: var(--dark-danger-color-hover);
 }
 
-/* --- 入口按钮 --- */
+/* --- Nút lối tắt / Nút truy cập --- */
 #hide-helper-wand-button {
     display: flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 5px; cursor: pointer; transition: background-color 0.2s ease, color 0.2s ease;
     color: var(--hh-text-secondary);
@@ -136,7 +136,7 @@
 #hide-helper-wand-button:hover { color: var(--hh-text-primary); }
 #hide-helper-wand-button i { font-size: 16px; }
 
-/* --- 弹窗遮罩层 --- */
+/* --- Lớp phủ nền popup (Backdrop) --- */
 .hide-helper-backdrop {
     position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100vw; height: 100vh;
     background-color: var(--hh-color-black-overlay); backdrop-filter: blur(12px) saturate(180%); -webkit-backdrop-filter: blur(12px) saturate(180%);
@@ -144,7 +144,7 @@
 }
 @keyframes backdropFadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-/* --- 弹窗通用样式 --- */
+/* --- Kiểu dáng chung của popup --- */
 .hide-helper-popup, .hide-helper-instructions-popup {
     position: fixed; max-height: 90vh; width: 90%; max-width: 420px;
     background: var(--hh-background-popup); border: 1px solid var(--hh-border-color);
@@ -223,14 +223,14 @@
 #hide-unhide-all-btn:hover { background-color: var(--hh-danger-color-hover); transform: translateY(-2px); }
 #hide-helper-popup #hide-helper-instructions-btn:hover, #hide-helper-popup .hide-helper-close-btn:hover { background-color: var(--hh-btn-secondary-hover-bg) !important; }
 
-/* --- 弹窗内部关闭图标 --- */
+/* --- Biểu tượng đóng bên trong popup --- */
 #hide-helper-popup .hide-helper-popup-close-icon {
     position: absolute; top: 6px; right: 5px; width: 30px; border: none; background: none; color: var(--hh-text-secondary);
     font-size: 25px; line-height: 1; cursor: pointer; transition: color 0.2s ease, transform 0.2s ease; padding: 0; display: flex; align-items: center; justify-content: center;
 }
 #hide-helper-popup .hide-helper-popup-close-icon:hover { color: var(--hh-text-primary); transform: rotate(90deg); }
 
-/* --- 标签页 --- */
+/* --- Các thẻ Tab --- */
 #hide-helper-popup .popup-tabs-nav {
     display: flex !important; justify-content: space-evenly !important; border-bottom: 1px solid var(--hh-border-color) !important;
     margin: -20px -25px 20px -25px !important; padding: 0 15px !important; background: transparent !important; box-sizing: border-box !important;
@@ -250,7 +250,7 @@
 #hide-helper-popup *::-webkit-scrollbar { display: none !important; }
 #hide-helper-popup * { scrollbar-width: none !important; }
 
-/* --- 隐藏楼层指令区 --- */
+/* --- Khu vực hướng dẫn ẩn tầng --- */
 #hide-helper-popup .hide-panel-instructions { margin-top: 25px; padding-top: 20px; border-top: 1px solid var(--hh-border-color); }
 #hide-helper-popup .hide-panel-instructions h3 { font-size: 16px; font-weight: 500; color: var(--hh-text-primary); margin-bottom: 15px; padding-left: 10px; border-left: 4px solid var(--hh-accent-color); }
 #hide-helper-popup .hide-panel-instructions .instructions-content { font-size: 13px; line-height: 1.7; color: var(--hh-text-secondary); }
@@ -261,14 +261,14 @@
 #hide-helper-popup .hide-panel-instructions ul, #hide-helper-popup .hide-panel-instructions ol { padding-left: 20px; margin-bottom: 10px; }
 #hide-helper-popup .hide-panel-instructions li { margin-bottom: 5px; }
 
-/* --- 限制器面板 --- */
+/* --- Bảng điều khiển bộ giới hạn (Limiter) --- */
 #hide-helper-popup .limiter-setting-item { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding: 10px; background: var(--hh-background-secondary); border-radius: 8px; }
 #hide-helper-popup .limiter-setting-item label { color: var(--hh-text-secondary); }
 #hide-helper-popup #hide-disabled-msg, #hide-helper-popup #limiter-disabled-msg { display: none !important; justify-content: center !important; color: var(--hh-text-secondary) !important; }
 #hide-helper-popup .limiter-setting-item .text_pole { max-width: 100px; text-align: center; background-color: var(--hh-input-bg) !important; border: 1px solid var(--hh-border-color) !important; color: var(--hh-text-primary) !important; padding: 5px 10px !important; border-radius: 8px !important; box-sizing: border-box; }
 #hide-helper-popup .limiter-description { font-size: 13px; color: var(--hh-text-secondary); padding: 10px; border-radius: 8px; line-height: 1.6; margin-top: 15px; }
 
-/* --- 自定义复选框 --- */
+/* --- Hộp kiểm tùy chỉnh (Checkbox) --- */
 #hide-helper-popup .hide-helper-checkbox-container { display: inline-block; vertical-align: middle; }
 #hide-helper-popup .hide-helper-checkbox-container input[type="checkbox"] { -webkit-appearance: none !important; appearance: none !important; opacity: 0 !important; width: 0 !important; height: 0 !important; position: absolute !important; margin: 0 !important; padding: 0 !important; border: none !important; outline: none !important; }
 #hide-helper-popup .hide-helper-checkbox-container label { cursor: pointer; position: relative; display: inline-block; width: 22px; height: 22px; background-color: var(--hh-input-bg) !important; border: 1px solid var(--hh-border-color) !important; border-radius: 4px; transition: background-color 0.2s ease, border-color 0.2s ease; }
@@ -277,7 +277,7 @@
 #hide-helper-popup .hide-helper-checkbox-container input:checked + label { border-color: var(--hh-accent-color) !important; }
 #hide-helper-popup .hide-helper-checkbox-container input:checked + label::before { opacity: 1; }
 
-/* --- 说明文档内容区隔离 --- */
+/* --- Cô lập vùng nội dung tài liệu hướng dẫn --- */
 #hide-helper-popup .hide-helper-instructions-content { padding: 0; max-height: 465px !important; overflow-y: auto; line-height: 1.7; scrollbar-width: none; }
 #hide-helper-popup .hide-helper-instructions-content::-webkit-scrollbar { display: none; }
 #hide-helper-popup .hide-helper-instructions-content h2 { font-size: 18px; margin-top: 25px; margin-bottom: 15px; color: var(--hh-text-primary); border-left: 4px solid var(--hh-accent-color); padding-left: 10px; }
@@ -294,7 +294,7 @@
 #hide-helper-popup .hide-helper-instructions-content h3 { font-size: 16px; margin-top: 20px; margin-bottom: 10px; color: var(--hh-text-primary); font-weight: 500; }
 #hide-helper-popup .instructions-video { width: 100%; height: auto; border-radius: 8px; margin-bottom: 15px; display: block; border: 1px solid var(--hh-border-color); background-color: var(--hh-background-secondary); }
 
-/* --- 统计面板 --- */
+/* --- Bảng điều khiển thống kê --- */
 #token-stats-panel .tub-body { padding: 0 !important; margin: 0 !important; overflow: visible !important; max-height: none !important; }
 #token-stats-panel .tub-title-text, #token-stats-panel .tub-stat-value { color: var(--hh-text-primary) !important; font-weight: bold !important; }
 #token-stats-panel .tub-body, #token-stats-panel .tub-stat-label, #token-stats-panel .tub-legend, #token-stats-panel .tub-section-title { color: var(--hh-text-secondary) !important; }
@@ -340,7 +340,7 @@
 #token-stats-panel .tub-book-tag { color: var(--hh-text-secondary); font-size: 0.85em; font-weight: normal; }
 #token-stats-panel .tub-legend-item { display: flex; align-items: center; }
 
-/* --- 容器/区块样式隔离 --- */
+/* --- Cô lập kiểu dáng vùng chứa / khối phần tử --- */
 #hide-helper-popup .theme-switch-container { display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; background: var(--hh-background-secondary); border-radius: 8px; margin-bottom: 20px; border: 1px solid var(--hh-border-color); }
 #hide-helper-popup .hide-settings-tip { font-size: 12px; color: var(--hh-text-secondary); margin-top: 8px; }
 #hide-helper-popup .hide-helper-popup-footer-center { display: flex; justify-content: center; }
@@ -355,7 +355,7 @@
 #hide-helper-popup .log-ui-toggle-label { color: var(--hh-text-primary); font-weight: 500; font-size: 14px; }
 #hide-helper-popup .log-level-selector-wrapper { overflow: hidden; }
 
-/* --- 侧边栏/设置内页样式 --- */
+/* --- Kiểu dáng thanh bên / trang cài đặt nội bộ --- */
 #hide-helper-settings .hide-new-badge { background-color: #ff4444; color: white; font-size: 0.7em; padding: 1px 5px; border-radius: 4px; margin-left: 6px; font-weight: bold; vertical-align: middle; line-height: normal; animation: pulse-red 2s infinite; }
 @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.4); } 70% { box-shadow: 0 0 0 6px rgba(255, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0); } }
 #hide-helper-settings .hide-version-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 2px; font-size: 0.9em; opacity: 0.9; }
@@ -364,7 +364,7 @@
 #hide-helper-settings .hide-update-btn.has-update:hover { background-color: #ff4444 !important; color: white !important; }
 #hide-helper-settings .hide-update-btn:disabled { opacity: 0.7; cursor: not-allowed; }
 
-/* --- 主题提示弹窗样式 --- */
+/* --- Kiểu dáng popup gợi ý giao diện --- */
 .hide-helper-notification-popup { position: fixed; max-width: 400px; width: 90%; background: var(--hh-background-popup); border: 1px solid var(--hh-border-color); border-radius: 12px; box-shadow: 0 8px 32px var(--hh-color-black-shadow-strong); z-index: 10000; display: none; max-height: 90vh; animation: hhFadeIn 0.3s ease-out; }
 .hide-helper-notification-popup .notification-content { padding: 25px; text-align: center; }
 .hide-helper-notification-popup .notification-icon { font-size: 48px; color: var(--hh-accent-color); margin-bottom: 15px; }
@@ -377,7 +377,7 @@
 .hide-helper-notification-popup .notification-secondary-btn { background-color: var(--hh-btn-secondary-bg) !important; color: var(--hh-text-primary) !important; }
 .hide-helper-notification-popup .notification-secondary-btn:hover { background-color: var(--hh-btn-secondary-hover-bg) !important; }
 
-/* --- 更新日志弹窗 --- */
+/* --- Popup nhật ký cập nhật (Changelog) --- */
 .hide-modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: var(--hh-color-black-overlay); z-index: 99999; display: none; align-items: center; justify-content: center; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
 .hide-modal-overlay.visible { display: flex; }
 .hide-modal-box { background: var(--hh-background-popup); border: 1px solid var(--hh-border-color); border-radius: 12px; width: 400px; max-width: 90vw; padding: 20px; box-shadow: 0 10px 40px var(--hh-color-black-shadow-strong); display: flex; flex-direction: column; gap: 15px; color: var(--hh-text-primary); }
@@ -390,7 +390,7 @@
 .hide-modal-footer .menu_button.primary:hover { background-color: var(--hh-accent-color-hover) !important; }
 .hide-changelog-viewer { background: var(--hh-background-secondary); padding: 15px; border-radius: 6px; max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 0.9em; white-space: pre-wrap; color: var(--hh-text-primary); border: 1px solid var(--hh-border-color); }
 
-/* --- 下载图标悬停效果 --- */
+/* --- Hiệu ứng di chuột vào biểu tượng tải xuống --- */
 #hide-helper-download-log:hover {
     color: var(--hh-text-primary) !important;
     transform: scale(1.1);

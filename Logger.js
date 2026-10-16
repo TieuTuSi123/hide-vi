@@ -1,55 +1,55 @@
 // Logger.js
-const PREFIX = '%c[隐藏助手]';
+const PREFIX = '%c[Trợ lý ẩn tầng]';
 const BASE_STYLE = 'font-weight: bold; padding: 2px 4px; border-radius: 3px; margin-right: 4px;';
 
 const STYLES = {
-    info:    `${BASE_STYLE} color: white; background-color: #17a2b8;`, // 蓝色 - 普通信息
-    success: `${BASE_STYLE} color: white; background-color: #28a745;`, // 绿色 - 成功操作
-    warn:    `${BASE_STYLE} color: #333; background-color: #ffc107;`,  // 橙黄 - 警告
-    error:   `${BASE_STYLE} color: white; background-color: #dc3545;`, // 红色 - 错误
-    debug:   `${BASE_STYLE} color: #6c757d; background-color: #f8f9fa; border: 1px solid #dee2e6;` // 灰色 - 调试
+    info:    `${BASE_STYLE} color: white; background-color: #17a2b8;`, // Xanh dương - Thông tin chung
+    success: `${BASE_STYLE} color: white; background-color: #28a745;`, // Xanh lá - Thao tác thành công
+    warn:    `${BASE_STYLE} color: #333; background-color: #ffc107;`,  // Vàng cam - Cảnh báo
+    error:   `${BASE_STYLE} color: white; background-color: #dc3545;`, // Đỏ - Lỗi
+    debug:   `${BASE_STYLE} color: #6c757d; background-color: #f8f9fa; border: 1px solid #dee2e6;` // Xám - Gỡ lỗi (Debug)
 };
 
-// 日志级别定义
+// Định nghĩa mức độ nhật ký (Log Level)
 const LogLevel = {
-    NONE: 0,      // 零日志 - 无任何输出
-    CORE: 1,      // 核心日志 - error + warn
-    RUNTIME: 2,   // 运行日志 - error + warn + info + success
-    FULL: 3       // 完整日志 - 所有日志包括 debug
+    NONE: 0,      // Tắt log - Không xuất log
+    CORE: 1,      // Log cốt lõi - error + warn
+    RUNTIME: 2,   // Log hoạt động - error + warn + info + success
+    FULL: 3       // Log đầy đủ - Toàn bộ log bao gồm cả debug
 };
 
 class Logger {
-    // 当前日志级别（默认为零日志）
+    // Mức độ nhật ký hiện tại (mặc định là tắt log)
     static currentLevel = LogLevel.NONE;
-    // 日志历史记录数组，用于导出
+    // Mảng lưu trữ lịch sử nhật ký, dùng để xuất file
     static logHistory = [];
 
-    // 将日志推送到内存中（严格限制：仅在完整日志级别3时才执行，保障性能）
+    // Đẩy log vào bộ nhớ RAM (Giới hạn nghiêm ngặt: Chỉ thực hiện ở mức log đầy đủ cấp 3 để đảm bảo hiệu năng)
     static pushToHistory(levelName, ...args) {
         if (this.currentLevel !== LogLevel.FULL) return;
 
-        const timestamp = new Date().toLocaleString('zh-CN', { hour12: false });
+        const timestamp = new Date().toLocaleString('vi-VN', { hour12: false });
         const message = args.map(arg => {
             if (typeof arg === 'object') {
                 try {
                     return JSON.stringify(arg, (key, value) => {
-                        if (key === 'parent' || key === 'dom' || key === 'collection') return '[已省略嵌套对象]';
+                        if (key === 'parent' || key === 'dom' || key === 'collection') return '[Đã lược bỏ đối tượng lồng nhau]';
                         return value;
                     });
-                } catch(e) { return '[复杂对象/解析失败]'; }
+                } catch(e) { return '[Đối tượng phức tạp / Phân tích thất bại]'; }
             }
             return String(arg);
         }).join(' ');
 
         this.logHistory.push(`[${timestamp}] [${levelName}] ${message}`);
 
-        // 限制内存中最多保存最近 500 条日志
+        // Giới hạn bộ nhớ chỉ lưu tối đa 500 dòng log gần nhất
         if (this.logHistory.length > 500) {
             this.logHistory.shift();
         }
     }
 
-    // 导出并下载日志
+    // Xuất và tải xuống file nhật ký
     static exportLogs() {
         if (this.logHistory.length === 0) return false;
         const blob = new Blob([this.logHistory.join('\n')], { type: 'text/plain;charset=utf-8' });
@@ -64,7 +64,7 @@ class Logger {
         return true;
     }
 
-    // 设置日志级别
+    // Thiết lập mức độ nhật ký
     static setLogLevel(level) {
         if (level in LogLevel) {
             this.currentLevel = LogLevel[level];
@@ -73,48 +73,48 @@ class Logger {
         }
     }
 
-    // 获取日志级别
+    // Lấy mức độ nhật ký hiện tại
     static getLogLevel() {
         return this.currentLevel;
     }
 
-    // 检查是否应该输出日志
+    // Kiểm tra xem có nên xuất log hay không
     static shouldLog(level) {
         return this.currentLevel >= level;
     }
 
-    // 错误提示（级别 1 - 核心日志）
+    // Thông báo lỗi (Mức 1 - Log cốt lõi)
     static error(...args) {
         this.pushToHistory('ERROR', ...args);
         if (this.shouldLog(LogLevel.CORE)) console.error(PREFIX, STYLES.error, ...args);
     }
 
-    // 警告提示（级别 1 - 核心日志）
+    // Thông báo cảnh báo (Mức 1 - Log cốt lõi)
     static warn(...args) {
         this.pushToHistory('WARN', ...args);
         if (this.shouldLog(LogLevel.CORE)) console.warn(PREFIX, STYLES.warn, ...args);
     }
 
-    // 基础信息（级别 2 - 运行日志）
+    // Thông tin cơ bản (Mức 2 - Log hoạt động)
     static info(...args) {
         this.pushToHistory('INFO', ...args);
         if (this.shouldLog(LogLevel.RUNTIME)) console.log(PREFIX, STYLES.info, ...args);
     }
 
-    // 成功提示（级别 2 - 运行日志）
+    // Thông báo thành công (Mức 2 - Log hoạt động)
     static success(...args) {
         this.pushToHistory('SUCCESS', ...args);
         if (this.shouldLog(LogLevel.RUNTIME)) console.log(PREFIX, STYLES.success, ...args);
     }
 
-    // 调试信息（级别 3 - 完整日志）
+    // Thông tin gỡ lỗi (Mức 3 - Log đầy đủ)
     static debug(...args) {
         this.pushToHistory('DEBUG', ...args);
         if (this.shouldLog(LogLevel.FULL)) console.debug(PREFIX, STYLES.debug, ...args);
     }
 }
 
-// 导出日志级别常量，供外部使用
+// Xuất hằng số mức độ nhật ký để sử dụng bên ngoài
 Logger.LogLevel = LogLevel;
 
 export default Logger;

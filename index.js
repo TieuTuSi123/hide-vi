@@ -1,7 +1,7 @@
-// index.js (使用 extension_settings 存储并包含自动迁移，优化了初始化)
+// index.js (Lưu trữ bằng extension_settings và bao gồm tính năng tự động di chuyển dữ liệu, tối ưu hóa quá trình khởi tạo)
 import { extension_settings, loadExtensionSettings, getContext } from "../../../extensions.js";
 import Logger from "./Logger.js";
-// 尝试导入全局列表，路径可能需要调整！如果导入失败，迁移逻辑需要改用 API 调用
+// Thử import danh sách toàn cục, đường dẫn có thể cần điều chỉnh! Nếu import thất bại, logic di chuyển cần chuyển sang gọi API
 import { saveSettings, saveSettingsDebounced, eventSource, event_types, getRequestHeaders, characters, scrollChatToBottom, Generate, stopGeneration, is_send_press } from "../../../../script.js";
 
 import { groups } from "../../../group-chats.js";
@@ -12,79 +12,79 @@ import { checkForUpdates, getChangelog, performUpdate, initUpdateCheck } from ".
 
 const extensionName = "hide";
 const defaultSettings = {
-    // 全局默认设置
+    // Cài đặt mặc định toàn cục
     enabled: true,
-    // 自动隐藏功能总开关
+    // Công tắc tổng của tính năng tự động ẩn
     autoHideEnabled: true,
-    // 记录是否首次查看隐藏楼层页面的使用说明
+    // Ghi nhận xem đã xem hướng dẫn sử dụng trang ẩn tầng lần đầu hay chưa
     hide_instructions_viewed: false,
-    // 用于存储每个实体设置的对象
+    // Đối tượng lưu trữ cài đặt cho từng thực thể (nhân vật/nhóm)
     settings_by_entity: {},
-    // 迁移标志
+    // Cờ đánh dấu hoàn tất di chuyển dữ liệu
     migration_v1_complete: true,
-    // 添加全局设置相关字段
+    // Thêm các trường liên quan đến cài đặt toàn cục
     useGlobalSettings: false,
     globalHideSettings: {
         hideLastN: null,
         lastProcessedLength: 0,
         userConfigured: false
     },
-    // --- Limiter 设置 ---
+    // --- Cài đặt Limiter (Giới hạn tải) ---
     limiter_isEnabled: false,
-    limiter_saved_count: 20, // 为被篡改时的还原备份
+    limiter_saved_count: 20, // Bản sao lưu khôi phục khi bị can thiệp trái phép
     limiter_migration_v2_complete: true,
-    // --- 标签页状态保存 ---
+    // --- Lưu trạng thái tab ---
     last_active_tab: 'hide-panel',
-    // --- 主题设置 ---
+    // --- Cài đặt giao diện ---
     theme: 'light',
-    // --- 日志级别设置 ---
-    logLevel: 0, // 0=零日志(默认), 1=核心日志, 2=运行日志, 3=完整日志
-    // --- 主题提示设置 ---
-    theme_notification_viewed: false, // 是否已显示过主题切换提示
-    // --- 日志UI显示设置 ---
-    logUiVisible: false, // 控制日志级别选择器的显示/隐藏，默认隐藏
-    logUiOpenedAt: null, // 记录日志UI开启时的时间戳，用于60分钟熔断
+    // --- Cài đặt mức độ nhật ký (Log Level) ---
+    logLevel: 0, // 0=Tắt log (mặc định), 1=Log cốt lõi, 2=Log hoạt động, 3=Log đầy đủ
+    // --- Cài đặt gợi ý giao diện ---
+    theme_notification_viewed: false, // Đã hiển thị gợi ý chuyển đổi giao diện chưa
+    // --- Cài đặt hiển thị UI nhật ký ---
+    logUiVisible: false, // Điều khiển hiển thị/ẩn bộ chọn mức độ log, mặc định ẩn
+    logUiOpenedAt: null, // Ghi lại mốc thời gian khi UI log được mở, dùng cho cơ chế tự đóng sau 60 phút
 };
 
-// Limiter 双向同步防重入标志
+// Cờ chống trùng lặp khi đồng bộ hai chiều Limiter
 let _limiterSyncing = false;
 
-// 缓存上下文
+// Bộ nhớ đệm ngữ cảnh (Cached context)
 let cachedContext = null;
 
-// --- 模拟生成 (Dry Run) 机制变量 ---
+// --- Các biến cho cơ chế tạo giả lập (Dry Run) ---
 let isFakeGenerating = false;
-// 标志位：仅当插件主动触发 dry run 时才接受 WI 扫描结果更新统计数据
+// Cờ đánh dấu: Chỉ chấp nhận kết quả quét WI để cập nhật thống kê khi plugin chủ động kích hoạt dry run
 let isOurWiScan = false;
 
-// 触发假发送以刷新 EJS 统计数据
+// Kích hoạt gửi giả lập để làm mới dữ liệu thống kê EJS
 function forceRefreshTokenStats() {
-    // 如果已经在真正的生成中，或者正在假生成中，则跳过
+    // Nếu đang trong quá trình tạo thực sự hoặc đang tạo giả lập, bỏ qua
     if (isFakeGenerating || is_send_press) {
-        Logger.debug('当前正在生成中，跳过模拟刷新');
+        Logger.debug('Hiện đang trong quá trình tạo văn bản, bỏ qua làm mới giả lập');
         return;
     }
     isFakeGenerating = true;
     isOurWiScan = true;
-    Logger.debug('触发模拟生成 (Dry Run) 获取最新 EJS 统计...');
+    Logger.debug('Kích hoạt tạo giả lập (Dry Run) để lấy thống kê EJS mới nhất...');
     try {
-        // 调用底层的发送，逼迫酒馆计算所有动态上下文
+        // Gọi hàm Generate tầng dưới, buộc SillyTavern tính toán toàn bộ ngữ cảnh động
         Generate('normal');
     } catch (e) {
         isFakeGenerating = false;
         isOurWiScan = false;
-        Logger.error('模拟生成失败:', e);
+        Logger.error('Tạo giả lập thất bại:', e);
     }
 }
 
-// --- 聊天统计 (Token Stats) 数据存储 ---
+// --- Lưu trữ dữ liệu thống kê trò chuyện (Token Stats) ---
 let calculatedWiTokens = 0;
 let wiDetailedStats = {};
 
-// --- ST-PT 隐形拦截器 ---
+// --- Bộ đánh chặn ẩn ST-PT ---
 let stptInterceptedEntries = [];
 let isSTPTInterceptorSetup = false;
-let stptLastRunID = -1; // 记录 ST-PT 的运行周期 ID
+let stptLastRunID = -1; // Ghi lại ID chu kỳ hoạt động của ST-PT
 
 function setupSTPTInterceptor() {
     if (isSTPTInterceptorSetup) return;
@@ -93,24 +93,24 @@ function setupSTPTInterceptor() {
         eventSource.on('prompt_template_prepare', (env) => {
             if (env && env.runType === 'generate') {
                 
-                // 周期管控：全新的生成回合重置拦截数组
+                // Quản lý chu kỳ: Đặt lại mảng đánh chặn khi có lượt tạo hoàn toàn mới
                 if (env.runID !== undefined && env.runID !== stptLastRunID) {
                     stptInterceptedEntries = [];
                     stptLastRunID = env.runID;
                 }
 
-                // 1. 顶层拦截 (如 @INJECT 等注入条目)
+                // 1. Đánh chặn tầng cao nhất (như các mục tiêm @INJECT)
                 if (env.world_info && env.world_info.comment) {
                     const val = env.world_info;
                     stptInterceptedEntries.push({
-                        world: val.world || 'ST-PT 默认注入',
-                        comment: val.comment || '未命名条目',
+                        world: val.world || 'ST-PT Tiêm mặc định',
+                        comment: val.comment || 'Mục chưa đặt tên',
                         rawText: val.content || '',
                         isRaw: true
                     });
                 }
 
-                // 2. 动态劫持 (如 getwi)
+                // 2. Chiếm quyền điều khiển động (ví dụ getwi)
                 const interceptFunction = (funcName) => {
                     if (typeof env[funcName] === 'function' && !env[funcName]._isIntercepted) {
                         const originalFunc = env[funcName];
@@ -122,41 +122,41 @@ function setupSTPTInterceptor() {
                                 let bookName = '';
                                 let keyword = '';
 
-                                // 步骤 A: 解析用户传给 getwi 的参数 (获取书名和检索词)
+                                // Bước A: Phân tích tham số người dùng truyền vào getwi (lấy tên sách và từ khóa tìm kiếm)
                                 if (args.length >= 2 && typeof args[1] !== 'object') {
-                                    // 应对 getwi(null, '柳飞絮') 或 getwi('书名', '柳飞絮')
+                                    // Xử lý getwi(null, 'tên_mục') hoặc getwi('tên_sách', 'tên_mục')
                                     bookName = args[0] || (env.world_info && env.world_info.world) || '';
                                     keyword = String(args[1]);
                                 } else if (args.length > 0) {
-                                    // 应对 getwi('柳飞絮')
+                                    // Xử lý getwi('tên_mục')
                                     bookName = (env.world_info && env.world_info.world) || '';
                                     keyword = String(args[0]);
                                 }
 
-                                // 兜底名字，防止反查失败
-                                let exactEntryName = `[动态检索] ${keyword}`;
-                                let finalBookName = bookName || '当前世界书';
+                                // Tên dự phòng để tránh việc tra cứu ngược thất bại
+                                let exactEntryName = `[Tìm kiếm động] ${keyword}`;
+                                let finalBookName = bookName || 'Sách thế giới hiện tại';
 
-                                // 🌟🌟🌟 步骤 B: - 利用 ST-PT 原生接口反查真实的条目名字！
-                                // env.getWorldInfoData 是 ST-PT 暴露的获取世界书所有条目的方法
+                                // 🌟🌟🌟 Bước B: Sử dụng API gốc của ST-PT để tra cứu tên mục thực tế!
+                                // env.getWorldInfoData là phương thức do ST-PT cung cấp để lấy toàn bộ mục trong World Info
                                 if (typeof env.getWorldInfoData === 'function') {
                                     try {
-                                        // 传入书名获取该书所有条目（如果不传则获取当前环境生效的条目）
+                                        // Truyền tên sách để lấy tất cả các mục của sách đó (nếu không truyền sẽ lấy mục có hiệu lực trong môi trường hiện tại)
                                         const entries = await env.getWorldInfoData(bookName || undefined);
                                         
                                         if (Array.isArray(entries)) {
-                                            // 完美复刻 ST-PT 底层的查找逻辑：严格等于或正则匹配
+                                            // Tái hiện chính xác logic tìm kiếm của ST-PT: Khớp chính xác hoặc khớp Regex
                                             const matchedEntry = entries.find(e => {
                                                 if (!e || !e.comment) return false;
                                                 if (e.comment === keyword || String(e.uid) === keyword) return true;
                                                 try {
-                                                    // 尝试用正则匹配 (ST-PT原生逻辑)
+                                                    // Thử khớp bằng Regex (logic gốc của ST-PT)
                                                     if (e.comment.match && e.comment.match(keyword)) return true;
                                                 } catch(err) {}
                                                 return false;
                                             });
 
-                                            // 如果找到了真实条目，提取出它的真名！
+                                            // Nếu tìm thấy mục thực tế, trích xuất tên thật của nó!
                                             if (matchedEntry) {
                                                 exactEntryName = matchedEntry.comment;
                                                 if (matchedEntry.world) {
@@ -165,12 +165,12 @@ function setupSTPTInterceptor() {
                                             }
                                         }
                                     } catch(e) {
-                                        // 忽略反查过程中的报错，安静地回落到兜底名字
-                                        console.warn("[隐藏助手] 反查真实世界书条目名失败，使用检索词替代:", e);
+                                        // Bỏ qua lỗi trong quá trình tra cứu, âm thầm quay về dùng tên dự phòng
+                                        console.warn("[Trợ lý ẩn tầng] Tra cứu tên mục World Info thực tế thất bại, sử dụng từ khóa thay thế:", e);
                                     }
                                 }
 
-                                // 推入统计数组 (等待后续缝合)
+                                // Đẩy vào mảng thống kê (chờ ghép nối dữ liệu sau)
                                 stptInterceptedEntries.push({
                                     world: finalBookName,
                                     comment: exactEntryName,
@@ -188,52 +188,52 @@ function setupSTPTInterceptor() {
                 interceptFunction('getWorldInfo');
             }
         });
-        Logger.success('成功挂载 ST-PT 渲染监听器 (已支持反查真实条目名)');
+        Logger.success('Gắn bộ lắng nghe hiển thị ST-PT thành công (đã hỗ trợ tra cứu tên mục thực tế)');
     }
     isSTPTInterceptorSetup = true;
 }
 
-// DOM元素缓存
+// Bộ nhớ đệm phần tử DOM
 const domCache = {
     hideLastNInput: null,
     currentValueDisplay: null,
-    // 初始化缓存
+    // Khởi tạo bộ nhớ đệm
     init() {
-        Logger.debug('初始化 DOM 缓存...');
+        Logger.debug('Khởi tạo bộ nhớ đệm DOM...');
         this.hideLastNInput = document.getElementById('hide-last-n');
         this.currentValueDisplay = document.getElementById('hide-current-value');
-        Logger.debug('DOM 缓存已初始化:', {
+        Logger.debug('Bộ nhớ đệm DOM đã khởi tạo:', {
             hideLastNInput: !!this.hideLastNInput,
             currentValueDisplay: !!this.currentValueDisplay
         });
     }
 };
 
-// --- 主题应用逻辑 ---
+// --- Logic áp dụng giao diện ---
 function applyTheme(theme) {
-    // 同时寻找主弹窗、更新遮罩层、通知弹窗，赋予独立的局部主题标识
+    // Đồng thời tìm popup chính, lớp phủ cập nhật, popup thông báo để gán nhãn giao diện cục bộ độc lập
     const targets = $('#hide-helper-popup, .hide-modal-overlay, #hide-helper-theme-notification');
     if (theme === 'dark') {
         targets.attr('data-theme', 'dark');
-        $('#hide-helper-theme-toggle').html('<i class="fa-solid fa-sun"></i> 切换为亮色模式');
+        $('#hide-helper-theme-toggle').html('<i class="fa-solid fa-sun"></i> Chuyển sang chế độ sáng');
     } else {
         targets.removeAttr('data-theme');
-        $('#hide-helper-theme-toggle').html('<i class="fa-solid fa-moon"></i> 切换为暗色模式');
+        $('#hide-helper-theme-toggle').html('<i class="fa-solid fa-moon"></i> Chuyển sang chế độ tối');
     }
 }
 
-// --- 主题提示弹窗辅助函数 ---
+// --- Hàm hỗ trợ popup gợi ý giao diện ---
 function showThemeNotification() {
     const $notification = $('#hide-helper-theme-notification');
     if ($notification.length === 0) {
         return;
     }
 
-    // 使用 centerPopup 函数居中弹窗
+    // Sử dụng hàm centerPopup để căn giữa popup
     $notification.show();
     centerPopup($notification);
 
-    // 绑定窗口大小变化事件
+    // Gắn sự kiện thay đổi kích thước cửa sổ
     $(window).off('resize.hideHelperNotification').on('resize.hideHelperNotification', () => centerPopup($notification));
 }
 
@@ -245,101 +245,101 @@ function closeThemeNotification() {
     });
 }
 
-// --- 日志级别应用逻辑 ---
+// --- Logic áp dụng mức độ nhật ký ---
 function applyLogLevel(level) {
     Logger.setLogLevel(level);
     $('#hide-helper-log-level-select').val(level);
 
-    // 更新日志级别显示文本
-    const levelTexts = ['零日志', '核心日志', '运行日志', '完整日志'];
-    $('#hide-helper-log-level-display').text(levelTexts[level] || '零日志');
+    // Cập nhật văn bản hiển thị mức độ nhật ký
+    const levelTexts = ['Tắt log', 'Log cốt lõi', 'Log hoạt động', 'Log đầy đủ'];
+    $('#hide-helper-log-level-display').text(levelTexts[level] || 'Tắt log');
 }
 
 /**
- * 通用弹窗居中函数
- * @param {jQuery} $popup - 需要居中的弹窗的jQuery对象
+ * Hàm căn giữa popup dùng chung
+ * @param {jQuery} $popup - Đối tượng jQuery của popup cần căn giữa
  */
 function centerPopup($popup) {
     if (!$popup || $popup.length === 0 || $popup.is(':hidden')) {
         return;
     }
 
-    // --- 改回 JS 实时计算居中 ---
-    // 解决移动端浏览器因视口高度变化导致的 CSS 居中定位失效问题
-    // 通过获取实际窗口宽高并减去弹窗实际宽高，算出绝对安全的像素坐标
+    // --- Chuyển về tính toán tọa độ căn giữa theo thời gian thực bằng JS ---
+    // Khắc phục lỗi căn giữa bằng CSS trên trình duyệt di động do chiều cao khung nhìn thay đổi
+    // Bằng cách lấy kích thước thực của cửa sổ trừ đi kích thước thực của popup để tính tọa độ pixel an toàn tuyệt đối
 
     const windowWidth = $(window).width();
     const windowHeight = $(window).height();
     const popupWidth = $popup.outerWidth();
     const popupHeight = $popup.outerHeight();
 
-    // 动态计算居中坐标
+    // Tính toán động tọa độ căn giữa
     let top = (windowHeight - popupHeight) / 2;
     let left = (windowWidth - popupWidth) / 2;
 
-    // 安全边界防溢出（留出至少 10px 的边距，防止极小屏幕下跑偏到屏幕外）
+    // Giới hạn biên an toàn chống tràn (giữ khoảng cách tối thiểu 10px để tránh bị tràn ra ngoài màn hình quá nhỏ)
     top = Math.max(10, top);
     left = Math.max(10, left);
 
     $popup.css({
         top: top + 'px',
         left: left + 'px',
-        transform: 'none', // 清除可能存在的 CSS 缩放和平移干扰
+        transform: 'none', // Xóa các can thiệp scale hoặc translate của CSS nếu có
         margin: '0'
     });
 }
 
-// 获取优化的上下文
+// Lấy ngữ cảnh đã được tối ưu
 function getContextOptimized() {
     if (!cachedContext) {
-        Logger.debug('上下文缓存未命中，正在获取...');
-        cachedContext = getContext(); // getContext returns a rich object
-        Logger.debug('上下文已获取');
+        Logger.debug('Ngữ cảnh không có sẵn trong bộ nhớ đệm, đang lấy mới...');
+        cachedContext = getContext(); // getContext trả về đối tượng giàu thông tin
+        Logger.debug('Ngữ cảnh đã được lấy');
     } else {
-        Logger.debug('上下文缓存命中');
+        Logger.debug('Sử dụng ngữ cảnh từ bộ nhớ đệm');
     }
     return cachedContext;
 }
 
-// 辅助函数：获取当前上下文的唯一实体ID
+// Hàm hỗ trợ: Lấy ID thực thể duy nhất của ngữ cảnh hiện tại
 function getCurrentEntityId() {
     const context = getContextOptimized();
     if (!context) return null;
 
     if (context.groupId) {
-        // 使用 group- 前缀和群组ID
+        // Dùng tiền tố group- cùng với ID nhóm
         return `group-${context.groupId}`;
     } else if (context.characterId !== undefined && context.characters && context.characters[context.characterId]) {
         const character = context.characters[context.characterId];
-        // 使用 character- 前缀和头像文件名
+        // Dùng tiền tố character- cùng với tên file avatar
         if (character.avatar) {
             return `character-${character.avatar}`;
         } else {
-            Logger.warn(`无法确定角色实体 ID (索引 ${context.characterId}): 缺少头像文件名`);
-            return null; // 无法确定唯一ID
+            Logger.warn(`Không thể xác định ID thực thể nhân vật (Chỉ số ${context.characterId}): Thiếu tên file avatar`);
+            return null; // Không thể xác định ID duy nhất
         }
     }
-    Logger.debug('无法从上下文确定实体 ID');
-    return null; // 无法确定实体
+    Logger.debug('Không thể xác định ID thực thể từ ngữ cảnh');
+    return null; // Không thể xác định thực thể
 }
 
-// 运行数据迁移 (从旧位置到新的全局位置)
+// Chạy quy trình di chuyển dữ liệu (Từ vị trí cũ sang vị trí toàn cục mới)
 function runMigration() {
-    Logger.info('开始旧版本设置迁移过程...');
+    Logger.info('Bắt đầu quy trình di chuyển cài đặt phiên bản cũ...');
     let migratedCount = 0;
-    // 确保容器存在
+    // Đảm bảo vùng chứa tồn tại
     extension_settings[extensionName].settings_by_entity = extension_settings[extensionName].settings_by_entity || {};
     const settingsContainer = extension_settings[extensionName].settings_by_entity;
-    Logger.debug('设置容器已初始化');
+    Logger.debug('Vùng chứa cài đặt đã khởi tạo');
 
-    // --- 迁移角色数据 ---
-    Logger.debug('开始角色设置迁移');
+    // --- Di chuyển dữ liệu nhân vật ---
+    Logger.debug('Bắt đầu di chuyển cài đặt nhân vật');
     if (typeof characters !== 'undefined' && Array.isArray(characters)) {
-        Logger.debug(`找到 ${characters.length} 个角色`);
+        Logger.debug(`Tìm thấy ${characters.length} nhân vật`);
         characters.forEach((character, index) => {
-            Logger.debug(`处理角色 #${index}: ${character ? character.name : '不可用'}`);
+            Logger.debug(`Đang xử lý nhân vật #${index}: ${character ? character.name : 'Không khả dụng'}`);
             if (!character || !character.data || !character.data.extensions) {
-                Logger.debug(`跳过角色 #${index}: 缺少必要属性`);
+                Logger.debug(`Bỏ qua nhân vật #${index}: Thiếu thuộc tính cần thiết`);
                 return;
             }
             try {
@@ -350,45 +350,45 @@ function runMigration() {
                     const hasLastProcessedLength = typeof oldSettings.lastProcessedLength === 'number';
                     const isUserConfigured = oldSettings.userConfigured === true;
                     const isValidOldData = hasHideLastN || hasLastProcessedLength || isUserConfigured;
-                    Logger.debug(`验证旧设置: hasHideLastN=${hasHideLastN}, hasLastProcessedLength=${hasLastProcessedLength}, isUserConfigured=${isUserConfigured}`);
+                    Logger.debug(`Xác thực cài đặt cũ: hasHideLastN=${hasHideLastN}, hasLastProcessedLength=${hasLastProcessedLength}, isUserConfigured=${isUserConfigured}`);
                     if (isValidOldData) {
                         const avatarFileName = character.avatar;
                         if (avatarFileName) {
                             const entityId = `character-${avatarFileName}`;
                             if (!settingsContainer.hasOwnProperty(entityId)) {
-                                Logger.debug(`迁移实体 '${entityId}' 的设置`);
+                                Logger.debug(`Di chuyển cài đặt của thực thể '${entityId}'`);
                                 settingsContainer[entityId] = { ...oldSettings };
                                 migratedCount++;
-                                Logger.debug(`实体 '${entityId}' 迁移成功 (${migratedCount})`);
+                                Logger.debug(`Di chuyển thực thể '${entityId}' thành công (${migratedCount})`);
                             } else {
-                                Logger.debug(`跳过 '${entityId}': 新位置已存在`);
+                                Logger.debug(`Bỏ qua '${entityId}': Vị trí mới đã tồn tại dữ liệu`);
                             }
                         } else {
-                             Logger.warn(`跳过迁移: 角色 ${character.name || '不可用'} 缺少头像文件名`);
+                             Logger.warn(`Bỏ qua di chuyển: Nhân vật ${character.name || 'Không khả dụng'} thiếu tên file avatar`);
                         }
                     } else {
-                         Logger.debug(`跳过角色 ${character.name || '不可用'}: 旧设置数据无效`);
+                         Logger.debug(`Bỏ qua nhân vật ${character.name || 'Không khả dụng'}: Dữ liệu cài đặt cũ không hợp lệ`);
                     }
                 } else {
-                     Logger.debug(`角色 #${index}: 无需迁移`);
+                     Logger.debug(`Nhân vật #${index}: Không cần di chuyển`);
                 }
             } catch (charError) {
-                 Logger.error(`迁移角色 #${index} (${character.name || '不可用'}) 时出错:`, charError);
+                 Logger.error(`Xảy ra lỗi khi di chuyển nhân vật #${index} (${character.name || 'Không khả dụng'}):`, charError);
             }
         });
-         Logger.debug('完成角色设置迁移');
+         Logger.debug('Hoàn tất di chuyển cài đặt nhân vật');
     } else {
-         Logger.warn('无法迁移角色设置: characters 数组不可用');
+         Logger.warn('Không thể di chuyển cài đặt nhân vật: Mảng characters không khả dụng');
     }
 
-    // --- 迁移群组数据 ---
-    Logger.debug('开始群组设置迁移');
+    // --- Di chuyển dữ liệu nhóm chat ---
+    Logger.debug('Bắt đầu di chuyển cài đặt nhóm chat');
     if (typeof groups !== 'undefined' && Array.isArray(groups)) {
-        Logger.debug(`找到 ${groups.length} 个群组`);
+        Logger.debug(`Tìm thấy ${groups.length} nhóm chat`);
         groups.forEach((group, index) => {
-            Logger.debug(`处理群组 #${index}: ${group ? group.name : '不可用'} (ID: ${group ? group.id : '不可用'})`);
+            Logger.debug(`Đang xử lý nhóm chat #${index}: ${group ? group.name : 'Không khả dụng'} (ID: ${group ? group.id : 'Không khả dụng'})`);
              if (!group || !group.data) {
-                Logger.debug(`跳过群组 #${index}: 缺少必要属性`);
+                Logger.debug(`Bỏ qua nhóm chat #${index}: Thiếu thuộc tính cần thiết`);
                 return;
             }
             try {
@@ -399,93 +399,93 @@ function runMigration() {
                     const hasLastProcessedLength = typeof oldSettings.lastProcessedLength === 'number';
                     const isUserConfigured = oldSettings.userConfigured === true;
                     const isValidOldData = hasHideLastN || hasLastProcessedLength || isUserConfigured;
-                    Logger.debug(`验证旧设置: hasHideLastN=${hasHideLastN}, hasLastProcessedLength=${hasLastProcessedLength}, isUserConfigured=${isUserConfigured}`);
+                    Logger.debug(`Xác thực cài đặt cũ: hasHideLastN=${hasHideLastN}, hasLastProcessedLength=${hasLastProcessedLength}, isUserConfigured=${isUserConfigured}`);
                     if (isValidOldData) {
                         const groupId = group.id;
                         if (groupId) {
                             const entityId = `group-${groupId}`;
                             if (!settingsContainer.hasOwnProperty(entityId)) {
-                                Logger.debug(`迁移实体 '${entityId}' 的设置`);
+                                Logger.debug(`Di chuyển cài đặt của thực thể '${entityId}'`);
                                 settingsContainer[entityId] = { ...oldSettings };
                                 migratedCount++;
-                                Logger.debug(`实体 '${entityId}' 迁移成功 (${migratedCount})`);
+                                Logger.debug(`Di chuyển thực thể '${entityId}' thành công (${migratedCount})`);
                             } else {
-                                Logger.debug(`跳过 '${entityId}': 新位置已存在`);
+                                Logger.debug(`Bỏ qua '${entityId}': Vị trí mới đã tồn tại dữ liệu`);
                             }
                         } else {
-                            Logger.warn(`跳过迁移: 群组 ${group.name || '不可用'} 缺少 ID`);
+                            Logger.warn(`Bỏ qua di chuyển: Nhóm chat ${group.name || 'Không khả dụng'} thiếu ID`);
                         }
                     } else {
-                        Logger.debug(`跳过群组 ${group.name || '不可用'}: 旧设置数据无效`);
+                        Logger.debug(`Bỏ qua nhóm chat ${group.name || 'Không khả dụng'}: Dữ liệu cài đặt cũ không hợp lệ`);
                     }
                 } else {
-                     Logger.debug(`群组 #${index}: 无需迁移`);
+                     Logger.debug(`Nhóm chat #${index}: Không cần di chuyển`);
                 }
             } catch (groupError) {
-                Logger.error(`迁移群组 #${index} (${group.name || '不可用'}) 时出错:`, groupError);
+                Logger.error(`Xảy ra lỗi khi di chuyển nhóm chat #${index} (${group.name || 'Không khả dụng'}):`, groupError);
             }
         });
-         Logger.debug('完成群组设置迁移');
+         Logger.debug('Hoàn tất di chuyển cài đặt nhóm chat');
     } else {
-        Logger.warn('无法迁移群组设置: groups 数组不可用');
+        Logger.warn('Không thể di chuyển cài đặt nhóm chat: Mảng groups không khả dụng');
     }
 
-    // --- 完成迁移 ---
-     Logger.debug('迁移过程结束');
+    // --- Hoàn tất di chuyển ---
+     Logger.debug('Quy trình di chuyển kết thúc');
     if (migratedCount > 0) {
-         Logger.success(`迁移完成：成功迁移 ${migratedCount} 个实体的设置`);
+         Logger.success(`Di chuyển hoàn tất: Đã di chuyển thành công cài đặt của ${migratedCount} thực thể`);
     } else {
-         Logger.info('迁移完成：无需迁移设置');
+         Logger.info('Di chuyển hoàn tất: Không có cài đặt nào cần di chuyển');
     }
 
-    // 无论是否迁移了数据，都将标志设置为 true，表示迁移过程已执行
+    // Dù có di chuyển dữ liệu hay không, đều đặt cờ thành true biểu thị đã thực hiện quy trình
     extension_settings[extensionName].migration_v1_complete = true;
-    Logger.debug('设置 migration_v1_complete 标志为 true');
+    Logger.debug('Đặt cờ migration_v1_complete thành true');
     saveSettingsDebounced();
-    Logger.debug('迁移过程完毕');
+    Logger.debug('Quy trình di chuyển đã hoàn tất');
 }
 
 
-// 初始化扩展设置 (包含迁移检查)
+// Khởi tạo cài đặt tiện ích mở rộng (Bao gồm kiểm tra di chuyển dữ liệu)
 function loadSettings() {
-    Logger.debug('加载设置中...');
+    Logger.debug('Đang tải cài đặt...');
     extension_settings[extensionName] = extension_settings[extensionName] || {};
 
-    // 使用 Object.assign 合并默认值，确保所有顶级键都存在
+    // Sử dụng Object.assign để hợp nhất giá trị mặc định, đảm bảo mọi key cấp cao nhất đều tồn tại
     Object.assign(extension_settings[extensionName], {
-        ...defaultSettings, // 先用默认值填充所有
-        ...extension_settings[extensionName] // 然后用保存的值覆盖
+        ...defaultSettings, // Điền giá trị mặc định trước
+        ...extension_settings[extensionName] // Sau đó ghi đè bằng các giá trị đã lưu
     });
-    // 确保深层对象也被正确初始化
+    // Đảm bảo đối tượng lồng sâu cũng được khởi tạo đúng cách
     extension_settings[extensionName].globalHideSettings = extension_settings[extensionName].globalHideSettings || { ...defaultSettings.globalHideSettings };
 
-    // --- 防止 settings_by_entity 被错误地反序列化为数组 ---
-    // 如果 settings_by_entity 是数组，JSON.stringify 保存时会丢弃所有键值对，导致重启后数据丢失
+    // --- Ngăn chặn settings_by_entity bị giải tuần tự hóa nhầm thành mảng (Array) ---
+    // Nếu settings_by_entity là mảng, JSON.stringify khi lưu sẽ vứt bỏ toàn bộ key-value, dẫn đến mất dữ liệu sau khi khởi động lại
     if (Array.isArray(extension_settings[extensionName].settings_by_entity)) {
-        Logger.warn('检测到 settings_by_entity 数据结构损坏（类型为 Array），已强制修复为 Object');
-        // 强制重置为空对象。如果不重置，后续的赋值在内存中有效，但无法写入 settings.json
+        Logger.warn('Phát hiện cấu trúc dữ liệu settings_by_entity bị lỗi (kiểu Array), đã cưỡng chế sửa thành Object');
+        // Ép đặt lại thành đối tượng rỗng. Nếu không đặt lại, các phép gán sau đó chỉ có hiệu lực trên RAM nhưng không ghi được vào settings.json
         extension_settings[extensionName].settings_by_entity = {};
-        // 立即触发一次保存，固化修复后的结构
+        // Kích hoạt lưu ngay lập tức để đồng bộ cấu trúc đã sửa
         saveSettingsDebounced();
     }
 
     extension_settings[extensionName].settings_by_entity = extension_settings[extensionName].settings_by_entity || { ...defaultSettings.settings_by_entity };
 
-    // --- 检查并运行迁移 ---
+    // --- Kiểm tra và chạy di chuyển dữ liệu ---
     if (!extension_settings[extensionName].migration_v1_complete) {
-        Logger.info('迁移标志未找到，开始迁移...');
+        Logger.info('Không tìm thấy cờ di chuyển, bắt đầu quy trình di chuyển...');
         try {
             runMigration();
         } catch (error) {
-            Logger.error('执行迁移时发生错误:', error);
-            // toastr.error('迁移旧设置时发生意外错误，请检查控制台日志。');
+            Logger.error('Xảy ra lỗi khi thực hiện di chuyển dữ liệu:', error);
+            // toastr.error('Xảy ra lỗi bất ngờ khi di chuyển cài đặt cũ, vui lòng kiểm tra console log.');
         }
     } else {
-        Logger.debug('迁移标志为 true，跳过迁移');
+        Logger.debug('Cờ di chuyển là true, bỏ qua quy trình');
     }
     // --------------------------
 
-    // --- Limiter v2 迁移: 从 limiter_messageLimit 迁移到 power_user.chat_truncation ---
+    // --- Di chuyển Limiter v2: Từ limiter_messageLimit sang power_user.chat_truncation ---
     if (!extension_settings[extensionName].limiter_migration_v2_complete) {
         const settings = extension_settings[extensionName];
         if (typeof settings.limiter_messageLimit === 'number') {
@@ -496,102 +496,102 @@ function loadSettings() {
                     $('#chat_truncation_counter').val(settings.limiter_messageLimit);
                 }
                 saveSettingsDebounced();
-                Logger.info(`Limiter v2 迁移: 已将 limiter_messageLimit=${settings.limiter_messageLimit} 写入 chat_truncation`);
+                Logger.info(`Di chuyển Limiter v2: Đã ghi limiter_messageLimit=${settings.limiter_messageLimit} vào chat_truncation`);
             }
             delete settings.limiter_messageLimit;
-            Logger.info('Limiter v2 迁移: 已删除旧字段 limiter_messageLimit');
+            Logger.info('Di chuyển Limiter v2: Đã xóa trường cũ limiter_messageLimit');
         }
         settings.limiter_migration_v2_complete = true;
         saveSettingsDebounced();
     }
 
-    Logger.debug('设置已加载/初始化');
+    Logger.debug('Cài đặt đã được tải/khởi tạo');
 }
 
-// 创建UI面板
+// Tạo bảng điều khiển UI
 function createUI() {
-    Logger.debug('创建 UI 面板');
+    Logger.debug('Tạo bảng điều khiển UI');
     const settingsHtml = `
     <div id="hide-helper-settings" class="hide-helper-container">
         <div class="inline-drawer">
             <div class="inline-drawer-toggle inline-drawer-header">
                 <div style="display:flex; align-items:center;">
-                    <b>隐藏助手</b>
+                    <b>Trợ lý ẩn tầng</b>
                     <span id="hide-helper-new-badge" class="hide-new-badge" style="display: none;">NEW</span>
                 </div>
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div>
             <div class="inline-drawer-content">
-                <!-- 版本信息与更新检测 -->
+                <!-- Thông tin phiên bản và kiểm tra cập nhật -->
                 <div class="hide-version-row">
-                    <span>当前版本: <span id="hide-helper-current-version">加载中...</span></span>
-                    <button id="hide-helper-check-update-btn" class="menu_button hide-update-btn">检查更新</button>
+                    <span>Phiên bản hiện tại: <span id="hide-helper-current-version">Đang tải...</span></span>
+                    <button id="hide-helper-check-update-btn" class="menu_button hide-update-btn">Kiểm tra cập nhật</button>
                 </div>
 
                 <div class="hide-helper-section">
-                    <!-- 开启/关闭选项 -->
+                    <!-- Tùy chọn Bật/Tắt -->
                     <div class="hide-helper-toggle-row">
-                        <span class="hide-helper-label">插件状态:</span>
+                        <span class="hide-helper-label">Trạng thái tiện ích:</span>
                         <select id="hide-helper-toggle">
-                            <option value="enabled">开启</option>
-                            <option value="disabled">关闭</option>
+                            <option value="enabled">Bật</option>
+                            <option value="disabled">Tắt</option>
                         </select>
                     </div>
                 </div>
-                <div class="hide-settings-tip">点击聊天输入框左侧菜单按钮中的隐藏助手按钮，即可打开插件面板</div>
+                <div class="hide-settings-tip">Nhấn vào nút Trợ lý ẩn tầng trong menu bên trái khung nhập chat để mở bảng điều khiển</div>
                 <hr class="sysHR">
             </div>
         </div>
     </div>`;
 
-    Logger.debug('追加设置 UI 到 #extensions_settings');
+    Logger.debug('Chèn giao diện cài đặt vào #extensions_settings');
     $("#extensions_settings").append(settingsHtml);
     createInputWandButton();
     createPopup();
     setupEventListeners();
-    Logger.debug('安排 DOM 缓存初始化');
-    setTimeout(() => domCache.init(), 100); // DOM缓存可以稍后初始化
+    Logger.debug('Lên lịch khởi tạo bộ nhớ đệm DOM');
+    setTimeout(() => domCache.init(), 100); // DOM cache có thể khởi tạo muộn hơn một chút
 }
 
-// 创建输入区旁的按钮
+// Tạo nút bấm cạnh khu vực nhập chat
 function createInputWandButton() {
-    Logger.debug('创建输入区按钮');
-    // 移除旧按钮，以防重复
+    Logger.debug('Tạo nút khu vực nhập chat');
+    // Xóa nút cũ để tránh bị trùng lặp
     $('#hide-helper-wand-button').remove();
     const buttonHtml = `
-        <div id="hide-helper-wand-button" title="打开隐藏助手设置">
+        <div id="hide-helper-wand-button" title="Mở cài đặt Trợ lý ẩn tầng">
             <i class="fa-solid fa-ghost"></i>
-            <span>隐藏助手</span>
+            <span>Trợ lý ẩn tầng</span>
         </div>`;
-    Logger.debug('追加按钮到 #data_bank_wand_container');
+    Logger.debug('Chèn nút vào #data_bank_wand_container');
     $('#data_bank_wand_container').append(buttonHtml);
 }
 
-// index.js (部分)
+// index.js (Phần tiếp theo)
 
-// 创建弹出对话框
+// Tạo hộp thoại popup
 function createPopup() {
-    Logger.debug('创建弹出对话框');
+    Logger.debug('Tạo hộp thoại popup');
     const popupHtml = `
         <div id="hide-helper-backdrop" class="hide-helper-backdrop"></div>
         <div id="hide-helper-popup" class="hide-helper-popup">
             <button id="hide-helper-popup-close-icon" class="hide-helper-popup-close-icon">&times;</button>
 
-            <!-- 标签页导航 -->
+            <!-- Điều hướng tab -->
             <div class="popup-tabs-nav">
-                <div class="tab-button veve" data-tab="hide-panel">隐藏楼层</div>
-                <div class="tab-button" data-tab="limiter-panel">限制楼层</div>
-                <div class="tab-button" data-tab="token-stats-panel">聊天统计</div>
-                <div class="tab-button" data-tab="instructions-panel">使用说明</div>
+                <div class="tab-button veve" data-tab="hide-panel">Ẩn tầng</div>
+                <div class="tab-button" data-tab="limiter-panel">Giới hạn tải</div>
+                <div class="tab-button" data-tab="token-stats-panel">Thống kê chat</div>
+                <div class="tab-button" data-tab="instructions-panel">Hướng dẫn sử dụng</div>
             </div>
 
-            <!-- 标签页内容 -->
+            <!-- Nội dung các tab -->
             <div class="popup-tabs-content">
-                <!-- 面板1: 隐藏楼层 -->
+                <!-- Panel 1: Ẩn tầng -->
                 <div id="hide-panel" class="tab-panel active" data-tab="hide-panel">
-                    <!-- 新增：功能总开关 -->
+                    <!-- Công tắc tổng tính năng -->
                     <div class="limiter-setting-item">
-                        <label for="hide-auto-process-toggle">启用隐藏楼层功能</label>
+                        <label for="hide-auto-process-toggle">Bật tính năng ẩn tầng</label>
                         <div class="hide-helper-checkbox-container">
                             <input id="hide-auto-process-toggle" type="checkbox">
                             <label for="hide-auto-process-toggle"></label>
@@ -599,22 +599,22 @@ function createPopup() {
                     </div>
 
                     <div class="limiter-setting-item" id="hide-disabled-msg">
-                        当前隐藏楼层功能已禁用
+                        Tính năng ẩn tầng hiện đang bị tắt
                     </div>
 
                     <div id="hide-settings-wrapper">
                         <div class="hide-helper-section hide-last-n-section">
-                            <label class="hide-helper-label">保留最新的N条消息，并隐藏其余旧楼层</label>
+                            <label class="hide-helper-label">Giữ lại N tin nhắn mới nhất và ẩn toàn bộ các tầng cũ còn lại</label>
                             <input type="number" id="hide-last-n" min="0" placeholder="" class="hide-last-n-input">
                         </div>
                         <div class="hide-helper-current">
-                            <strong id="hide-status-text">当前保留楼层数:</strong>
-                            <span id="hide-current-value">无</span>
+                            <strong id="hide-status-text">Số tầng giữ lại hiện tại:</strong>
+                            <span id="hide-current-value">Không có</span>
                         </div>
                         <div class="hide-helper-mode-switch">
                             <div class="label-group">
-                                <span id="hide-mode-label">全局模式</span>
-                                <span id="hide-mode-description">设置将应用于所有聊天</span>
+                                <span id="hide-mode-label">Chế độ toàn cục</span>
+                                <span id="hide-mode-description">Cài đặt sẽ áp dụng cho tất cả cuộc trò chuyện</span>
                             </div>
                             <label class="hide-helper-switch">
                                 <input type="checkbox" id="hide-mode-toggle">
@@ -623,78 +623,78 @@ function createPopup() {
                         </div>
                         <div class="hide-helper-popup-footer hide-helper-popup-footer-center">
                             <button id="hide-unhide-all-btn" class="hide-helper-btn">
-                                <i class="fa-solid fa-eye-slash"></i> 立即将当前聊天所有楼层取消隐藏
+                                <i class="fa-solid fa-eye-slash"></i> Bỏ ẩn toàn bộ các tầng trong đoạn chat hiện tại ngay lập tức
                             </button>
                         </div>
 
-                        <!-- 功能说明区域 -->
+                        <!-- Khu vực giải thích chức năng -->
                         <div class="hide-panel-instructions">
-                            <h3 id="hide-panel-instructions-title">使用说明</h3>
+                            <h3 id="hide-panel-instructions-title">Hướng dẫn sử dụng</h3>
                             <div class="instructions-content">
-                                <p class="important-note"><strong>启用该隐藏楼层功能后，酒馆将始终只发送最近N条楼层给AI，而N条目楼层之外的消息将会始终自动隐藏。</strong></p>
-                                <p><strong>1. 前提说明</strong></p>
-                                <p>在使用"自动隐藏"功能前，请务必确认以下配置：</p>
+                                <p class="important-note"><strong>Sau khi bật tính năng ẩn tầng, SillyTavern sẽ luôn chỉ gửi N tin nhắn gần nhất tới AI, còn các tin nhắn nằm ngoài phạm vi N tầng này sẽ luôn tự động bị ẩn.</strong></p>
+                                <p><strong>1. Lưu ý tiên quyết</strong></p>
+                                <p>Trước khi sử dụng tính năng "Tự động ẩn", vui lòng xác nhận các cấu hình sau:</p>
                                 <ul>
-                                    <li><strong>必要操作</strong>：必须勾选 <strong>【启用隐藏楼层功能】</strong> 并设置 <strong>【保留的楼层数 N】</strong>，否则功能不会生效。</li>
-                                    <li><strong>功能独立性</strong>：插件包含【隐藏楼层】、【限制楼层】和【聊天统计】三个核心功能。它们之间相互独立，互不影响。</li>
-                                    <li>若只想使用【限制楼层】和【聊天统计】，只需<strong>不勾选</strong>【启用隐藏楼层功能】即可。</li>
+                                    <li><strong>Thao tác bắt buộc</strong>: Phải tích chọn <strong>【Bật tính năng ẩn tầng】</strong> và thiết lập <strong>【Số tầng giữ lại N】</strong>, nếu không tính năng sẽ không hoạt động.</li>
+                                    <li><strong>Tính độc lập của chức năng</strong>: Tiện ích bao gồm 3 chức năng cốt lõi: 【Ẩn tầng】, 【Giới hạn tải】 và 【Thống kê chat】. Chúng hoạt động hoàn toàn độc lập và không ảnh hưởng lẫn nhau.</li>
+                                    <li>Nếu chỉ muốn dùng 【Giới hạn tải】 và 【Thống kê chat】, bạn chỉ cần <strong>bỏ chọn</strong> 【Bật tính năng ẩn tầng】.</li>
                                 </ul>
 
-                                <p><strong>2. 使用说明</strong></p>
-                                <p>设置保留楼层数 <strong>N</strong> 并启用功能后，插件会始终自动隐藏最近 N 楼之外的所有消息。</p>
+                                <p><strong>2. Hướng dẫn chi tiết</strong></p>
+                                <p>Sau khi đặt số tầng giữ lại <strong>N</strong> và kích hoạt tính năng, tiện ích sẽ luôn tự động ẩn toàn bộ tin nhắn ngoài N tầng gần nhất.</p>
                                 <ul>
-                                    <li><strong>示例</strong>：设置保留最近 <strong>1</strong> 楼。</li>
-                                    <li><strong>效果</strong>：若当前共有第 0 楼至第 9 楼消息，插件将自动隐藏第 0 至第 8 楼，仅将最新的第 9 楼消息发送给 AI。</li>
+                                    <li><strong>Ví dụ</strong>: Thiết lập giữ lại <strong>1</strong> tầng gần nhất.</li>
+                                    <li><strong>Hiệu quả</strong>: Nếu hiện có từ tầng 0 đến tầng 9, tiện ích sẽ tự động ẩn từ tầng 0 đến tầng 8, chỉ gửi duy nhất tầng 9 mới nhất cho AI.</li>
                                 </ul>
 
-                                <p><strong>3. 立即将当前聊天所有楼层取消隐藏</strong></p>
-                                <p>点击此按钮将执行以下操作：</p>
+                                <p><strong>3. Bỏ ẩn toàn bộ các tầng trong đoạn chat hiện tại</strong></p>
+                                <p>Bấm nút này sẽ thực hiện các thao tác sau:</p>
                                 <ol>
-                                    <li>立即取消当前聊天中所有楼层的隐藏状态。</li>
-                                    <li>清空【保留的楼层数 N】的数值。</li>
-                                    <li><strong>结果</strong>：自动隐藏功能将处于不生效状态。</li>
+                                    <li>Hủy trạng thái ẩn của tất cả tin nhắn trong đoạn chat hiện tại.</li>
+                                    <li>Xóa trắng giá trị 【Số tầng giữ lại N】.</li>
+                                    <li><strong>Kết quả</strong>: Tính năng tự động ẩn sẽ chuyển sang trạng thái không có hiệu lực.</li>
                                 </ol>
 
-                                <p><strong>4. 模式选择</strong></p>
-                                <p>插件提供两种配置模式，建议根据使用习惯选择：</p>
+                                <p><strong>4. Lựa chọn chế độ</strong></p>
+                                <p>Tiện ích cung cấp 2 chế độ cấu hình, nên chọn tùy theo thói quen sử dụng của bạn:</p>
                                 <ul>
-                                    <li><strong>全局模式（推荐）</strong>：只需设置一次【保留的楼层数】。该数值将应用于所有角色，切换角色无需重新配置，简单方便。</li>
-                                    <li><strong>角色模式</strong>：需要为每个角色卡单独设置【保留的楼层数】。注意：若某个角色未设置数值（数值为空），则该角色的自动隐藏功能不会生效。</li>
+                                    <li><strong>Chế độ toàn cục (Khuyên dùng)</strong>: Chỉ cần cài đặt 【Số tầng giữ lại】 một lần. Giá trị này sẽ áp dụng cho mọi nhân vật, đổi nhân vật không cần cấu hình lại, rất tiện lợi.</li>
+                                    <li><strong>Chế độ nhân vật</strong>: Cần cấu hình riêng biệt 【Số tầng giữ lại】 cho từng thẻ nhân vật. Lưu ý: Nếu nhân vật nào chưa đặt giá trị (để trống), tính năng tự động ẩn của nhân vật đó sẽ không hoạt động.</li>
                                 </ul>
 
-                                <p><strong>5. 注意事项与兼容性</strong></p>
+                                <p><strong>5. Lưu ý và tương thích</strong></p>
                                 <ul>
-                                    <li><strong>正则冲突</strong>：该功能与"隐藏楼层正则"冲突，请确保仅开启其中一个。</li>
-                                    <li><strong>插件冲突</strong>：若其他插件/脚本也具备自动隐藏功能，请仅启用其中一个，避免运行逻辑打架。</li>
-                                    <li><strong>核心原理</strong>：在没有其他脚本干预的情况下，本插件能确保仅发送最近 N 条消息。除了执行隐藏操作外，插件还会从底层<strong>直接截断发送的上下文</strong>，从根本上保证发送的消息层数符合设定。</li>
+                                    <li><strong>Xung đột Regex</strong>: Tính năng này xung đột với "Regex ẩn tầng", vui lòng đảm bảo chỉ bật một trong hai.</li>
+                                    <li><strong>Xung đột tiện ích mở rộng</strong>: Nếu có extension/script khác cũng có tính năng tự động ẩn, vui lòng chỉ bật một bên để tránh xung đột logic vận hành.</li>
+                                    <li><strong>Nguyên lý cốt lõi</strong>: Trong trường hợp không có script khác can thiệp, tiện ích này đảm bảo chỉ gửi N tin nhắn gần nhất. Ngoài thao tác ẩn trực tiếp, tiện ích còn <strong>cắt trực tiếp ngữ cảnh gửi đi từ tầng dưới</strong>, đảm bảo chắc chắn số lượng tầng tin nhắn gửi đi khớp đúng với cài đặt.</li>
                                 </ul>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- 面板2: 限制楼层 -->
+                <!-- Panel 2: Giới hạn tải -->
                 <div id="limiter-panel" class="tab-panel" data-tab="limiter-panel">
                     <div class="limiter-setting-item">
-                        <label for="limiter-enabled">启用限制楼层功能</label>
+                        <label for="limiter-enabled">Bật tính năng giới hạn tải</label>
                         <div class="hide-helper-checkbox-container">
                             <input id="limiter-enabled" type="checkbox">
                             <label for="limiter-enabled"></label>
                         </div>
                     </div>
                     <div class="limiter-setting-item" id="limiter-count-wrapper">
-                        <label for="limiter-count">加载的消息楼层数量</label>
-                        <input id="limiter-count" type="number" class="text_pole" min="0" max="1000" step="1" placeholder="例如: 20">
+                        <label for="limiter-count">Số lượng tầng tin nhắn tải lên</label>
+                        <input id="limiter-count" type="number" class="text_pole" min="0" max="1000" step="1" placeholder="Ví dụ: 20">
                     </div>
                     <div class="limiter-setting-item" id="limiter-disabled-msg">
-                        当前限制楼层功能已禁用
+                        Tính năng giới hạn tải hiện đang bị tắt
                     </div>
                     <div class="limiter-description">
-                        该功能会实时动态限制聊天界面加载的消息楼层数量，以减少酒馆卡顿，提高流畅度。建议设置的【加载的消息楼层数量】不要超过20。没有加载（且也未被隐藏）的楼层消息依然会被当做上下文发送给AI。该功能实际上和酒馆原生的【要渲染 # 条消息】是同一个接口，因此和酒馆或酒馆助手以及鸡尾酒插件的"限制消息加载"功能不会冲突。
+                        Tính năng này sẽ chủ động giới hạn số lượng tin nhắn được tải và hiển thị trên giao diện chat theo thời gian thực nhằm giảm giật lag và tăng độ mượt cho SillyTavern. Khuyên bạn nên đặt 【Số lượng tầng tin nhắn tải lên】 không quá 20. Những tin nhắn không được tải lên giao diện (và chưa bị ẩn) vẫn sẽ được gửi làm ngữ cảnh cho AI bình thường. Tính năng này thực chất dùng chung API với tùy chọn gốc 【Messages to render】 của SillyTavern, do đó hoàn toàn không xung đột với tính năng giới hạn tải tin nhắn gốc hoặc của Tavern Helper / Cocktail.
                     </div>
                 </div>
 
-                <!-- 面板3: 聊天统计 -->
+                <!-- Panel 3: Thống kê chat -->
                 <div id="token-stats-panel" class="tab-panel" data-tab="token-stats-panel">
                     <div id="token-stats-content" class="tub-body">
                         <div class="tub-row-1" id="tub-row-overview"></div>
@@ -703,23 +703,23 @@ function createPopup() {
                     </div>
                 </div>
 
-                <!-- 面板4: 使用说明 -->
+                <!-- Panel 4: Hướng dẫn sử dụng -->
                 <div id="instructions-panel" class="tab-panel" data-tab="instructions-panel">
                     <div id="hide-helper-instructions-content" class="hide-helper-instructions-content">
 
-                        <!-- 主题切换按钮 -->
+                        <!-- Nút chuyển đổi giao diện -->
                         <div class="theme-switch-container">
-                            <span class="theme-switch-label">UI主题</span>
+                            <span class="theme-switch-label">Giao diện UI</span>
                             <button id="hide-helper-theme-toggle" class="hide-helper-btn">
-                                <i class="fa-solid fa-moon"></i> 切换为暗色模式
+                                <i class="fa-solid fa-moon"></i> Chuyển sang chế độ tối
                             </button>
                         </div>
 
-                        <!-- 日志UI显示开关 -->
+                        <!-- Công tắc hiển thị UI nhật ký -->
                         <div class="log-ui-toggle-container">
-                            <label for="hide-helper-log-ui-toggle" class="log-ui-toggle-label">显示日志</label>
+                            <label for="hide-helper-log-ui-toggle" class="log-ui-toggle-label">Hiển thị nhật ký (Log)</label>
                             <div style="display: flex; align-items: center;">
-                                <i class="fa-solid fa-download" id="hide-helper-download-log" title="下载调试日志" style="cursor: pointer; margin-right: 12px; font-size: 16px; color: var(--hh-text-secondary); display: none; transition: color 0.2s;"></i>
+                                <i class="fa-solid fa-download" id="hide-helper-download-log" title="Tải xuống nhật ký gỡ lỗi" style="cursor: pointer; margin-right: 12px; font-size: 16px; color: var(--hh-text-secondary); display: none; transition: color 0.2s;"></i>
                                 <div class="hide-helper-checkbox-container">
                                     <input id="hide-helper-log-ui-toggle" type="checkbox">
                                     <label for="hide-helper-log-ui-toggle"></label>
@@ -727,85 +727,85 @@ function createPopup() {
                             </div>
                         </div>
 
-                        <!-- 日志级别选择器（默认隐藏） -->
+                        <!-- Bộ chọn mức độ nhật ký (Mặc định ẩn) -->
                         <div class="log-level-selector-wrapper" style="display: none;">
                         <div class="log-level-switch-container">
-                            <span class="log-level-label">日志级别</span>
+                            <span class="log-level-label">Mức độ log</span>
                             <select id="hide-helper-log-level-select" class="hide-helper-select log-level-select">
-                                <option value="0">零日志 (无输出)</option>
-                                <option value="1">核心日志 (错误+警告)</option>
-                                <option value="2">运行日志 (全部运行信息)</option>
-                                <option value="3">完整日志 (含调试)</option>
+                                <option value="0">Tắt log (Không xuất log)</option>
+                                <option value="1">Log cốt lõi (Lỗi + Cảnh báo)</option>
+                                <option value="2">Log hoạt động (Toàn bộ thông tin chạy)</option>
+                                <option value="3">Log đầy đủ (Bao gồm debug)</option>
                             </select>
                         </div>
                         </div>
 
                         <video class="instructions-video" controls muted loop playsinline>
                             <source src="https://files.catbox.moe/wmv5bd.mp4" type="video/mp4">
-                            您的浏览器不支持 Video 标签。
+                            Trình duyệt của bạn không hỗ trợ thẻ Video.
                         </video>
 
-                        <h2>核心功能协同与区别</h2>
-                        <p><strong>隐藏楼层</strong> 和 <strong>限制楼层</strong> 是两个可以独立配置并协同工作的功能，用于解决不同问题（可搭配使用）：</p>
+                        <h2>Sự phối hợp và khác biệt giữa các tính năng cốt lõi</h2>
+                        <p><strong>Ẩn tầng</strong> và <strong>Giới hạn tải</strong> là hai tính năng có thể cấu hình độc lập và phối hợp nhịp nhàng với nhau để giải quyết các vấn đề khác nhau (có thể dùng kết hợp):</p>
                         <ul>
-                            <li><strong>隐藏楼层（节省tokens）:</strong> 此功能通过会将消息进行隐藏，被隐藏的消息会出现👻幽灵图标。被隐藏的消息<strong>不会</strong>被发送给AI。</li>
-                            <li><strong>限制楼层（提高流畅度）:</strong> 此功能不修改任何数据，它仅仅是<strong>视觉上</strong>限制了聊天界面加载和显示的消息楼层数量。所有未被隐藏的消息依然会被发送给AI，只是没有在前端被渲染出来，这可以极大提升超长对话的性能、减少酒馆卡顿。</li>
-                            <li><strong>注意 :</strong>“隐藏”这个词在酒馆中是指：出现幽灵图标👻的消息。这种消息不会当做上下文发送给AI。而没有加载的消息，仅仅是聊天界面没有加载，不代表它不被发送给AI。是否发送给AI，要看它是否被隐藏，而不是看它是否显示在聊天界面中。</li>
+                            <li><strong>Ẩn tầng (Tiết kiệm Token):</strong> Tính năng này sẽ trực tiếp ẩn tin nhắn, các tin nhắn bị ẩn sẽ xuất hiện biểu tượng bóng ma 👻. Tin nhắn bị ẩn <strong>sẽ KHÔNG</strong> được gửi tới AI.</li>
+                            <li><strong>Giới hạn tải (Tăng độ mượt):</strong> Tính năng này không sửa đổi bất kỳ dữ liệu nào, nó chỉ giới hạn số lượng tin nhắn được tải và hiển thị trên giao diện chat <strong>về mặt thị giác</strong>. Tất cả tin nhắn chưa bị ẩn vẫn sẽ được gửi tới AI như thường, chỉ là chúng không được render ở frontend. Điều này giúp tăng hiệu năng rõ rệt cho các đoạn chat siêu dài và giảm giật lag.</li>
+                            <li><strong>Lưu ý:</strong> Từ "Ẩn" trong SillyTavern là chỉ: Tin nhắn có xuất hiện biểu tượng bóng ma 👻. Loại tin nhắn này sẽ không làm ngữ cảnh gửi cho AI. Còn tin nhắn "chưa được tải" chỉ là giao diện chưa render ra, không có nghĩa là nó không được gửi cho AI. Việc có gửi cho AI hay không phụ thuộc vào việc nó có bị "ẩn" hay không, chứ không phụ thuộc vào việc nó có hiển thị trên màn hình hay không.</li>
                         </ul>
 
-                        <h2>隐藏楼层 (功能一)</h2>
+                        <h2>Ẩn tầng (Tính năng 1)</h2>
                         <p>
-                           此功能的核心是：在每次与AI交互时，仅发送最新的N条消息作为上下文，并自动隐藏其余的旧消息。
+                           Cốt lõi của tính năng này là: Mỗi lần tương tác với AI, chỉ gửi N tin nhắn mới nhất làm ngữ cảnh và tự động ẩn toàn bộ các tin nhắn cũ trước đó.
                         </p>
                         <p class="important">
-                            <i class="fa-solid fa-shield-halved"></i> <strong>双重保护机制：</strong>本插件同时使用“消息隐藏”和“请求拦截”两种方式确保旧消息不会被发送给AI。即使某些消息楼层因特殊原因未能生效（例如被其他插件/脚本的隐藏功能覆盖），拦截机制仍会在API请求发出前强制截断消息列表，作为最终兜底保障，确保实际上发送的消息楼层真的只有最近N条消息楼层。
+                            <i class="fa-solid fa-shield-halved"></i> <strong>Cơ chế bảo vệ kép:</strong> Tiện ích sử dụng đồng thời hai phương thức "Ẩn tin nhắn" và "Đánh chặn yêu cầu" để đảm bảo các tin cũ không bao giờ bị gửi cho AI. Ngay cả khi một số tầng tin nhắn không kích hoạt ẩn thành công do lý do đặc biệt (chẳng hạn bị tính năng ẩn của plugin/script khác ghi đè), cơ chế đánh chặn vẫn sẽ cưỡng chế cắt ngắn danh sách tin nhắn trước khi gửi request API đi, đóng vai trò như chốt chặn cuối cùng bảo đảm số tin nhắn thực sự gửi đi chỉ vỏn vẹn N tầng gần nhất.
                         </p>
                         <p>
-                            在输入框中填入您想 <strong>保留的最新消息楼层数量</strong> (例如 <code>4</code>)，然后点击 <span class="button-like">保存设置</span> 按钮。插件便会立即生效，隐藏设定范围之外的所有内容。
+                            Điền <strong>số lượng tin nhắn mới nhất bạn muốn giữ lại</strong> vào ô nhập liệu (ví dụ <code>4</code>), sau đó nhấn nút <span class="button-like">Lưu cài đặt</span>. Tiện ích sẽ có hiệu lực ngay lập tức, ẩn toàn bộ nội dung nằm ngoài phạm vi thiết lập.
                         </p>
                         <p>
-                            <strong>示例：</strong> 假设当前聊天共有10条消息。您输入 <code>4</code> 并保存，则最新的4条消息会发送给AI，而之前的6条消息将不会发生给AI。当您或AI发送新消息后，插件会自动调整，确保始终只有最新的4条消息是未隐藏的，而之前的消息楼层则始终是隐藏的。
+                            <strong>Ví dụ:</strong> Giả sử đoạn chat hiện có 10 tin nhắn. Bạn nhập <code>4</code> và lưu, thì 4 tin mới nhất sẽ được gửi cho AI, còn 6 tin trước đó sẽ không gửi cho AI. Khi bạn hoặc AI gửi tin nhắn mới, tiện ích sẽ tự động điều chỉnh để luôn đảm bảo chỉ có 4 tin mới nhất là không bị ẩn, còn các tin cũ trước đó luôn trong trạng thái ẩn.
                         </p>
-                        <h3>全局模式 vs 角色模式</h3>
+                        <h3>Chế độ toàn cục vs Chế độ nhân vật</h3>
                         <p>
-                            您可以通过弹窗中的 <strong>拨动开关</strong> 在两种模式间轻松切换：
+                            Bạn có thể chuyển đổi linh hoạt giữa hai chế độ thông qua <strong>công tắc gạt</strong> trong popup:
                             <ul>
-                                <li><strong>全局模式：</strong> 在此模式下，您设置的保留数量将应用于 <strong>所有</strong> 角色卡和群聊。一次设置，处处生效。</li>
-                                <li><strong>角色模式：</strong> 在此模式下，设置将 <strong>仅</strong> 绑定到当前角色。您可以为每个角色或群聊设定并保存一个独立的保留数量。</li>
+                                <li><strong>Chế độ toàn cục:</strong> Ở chế độ này, số lượng giữ lại bạn thiết lập sẽ áp dụng cho <strong>TẤT CẢ</strong> thẻ nhân vật và nhóm chat. Cài đặt một lần, áp dụng mọi nơi.</li>
+                                <li><strong>Chế độ nhân vật:</strong> Ở chế độ này, cài đặt sẽ <strong>CHỈ</strong> gắn liền với nhân vật hiện tại. Bạn có thể đặt và lưu một số lượng giữ lại riêng biệt cho từng nhân vật hoặc nhóm chat.</li>
                             </ul>
                         </p>
-                         <h3>取消隐藏</h3>
+                         <h3>Hủy bỏ ẩn</h3>
                          <p>
-                            点击 <span class="button-like">取消隐藏</span> 按钮后，插件会立刻将当前聊天的楼层全部取消楼层一遍，并且将保留楼层的N值置空，置空状态下自动隐藏功能将不会生效。
+                            Sau khi nhấn nút <span class="button-like">Bỏ ẩn</span>, tiện ích sẽ ngay lập tức bỏ ẩn toàn bộ các tầng trong đoạn chat hiện tại, đồng thời xóa trống giá trị N giữ lại. Ở trạng thái để trống, tính năng tự động ẩn sẽ không có hiệu lực.
                         </p>
                         <p class="important">
-                            <i class="fa-solid fa-circle-info"></i> 被隐藏的消息 <strong>不会</strong> 被包含在发送给AI的上下文中。这意味着AI无法“看到”这些N楼之前的消息，这对于控制上下文长度和节省tokens非常有帮助。
+                            <i class="fa-solid fa-circle-info"></i> Tin nhắn bị ẩn <strong>sẽ KHÔNG</strong> được đưa vào ngữ cảnh gửi tới AI. Điều này đồng nghĩa với việc AI không thể "nhìn thấy" các tin nhắn trước N tầng này, điều này cực kỳ hữu ích để kiểm soát độ dài ngữ cảnh và tiết kiệm Token.
                         </p>
 
-                        <h2>限制楼层 (功能2)</h2>
+                        <h2>Giới hạn tải (Tính năng 2)</h2>
                         <p>
-                            此功能通过控制酒馆原生的“加载消息数”设置来优化超长对话的浏览体验。它只影响您在酒馆聊天界面中<strong>【显示】</strong>的消息数量，而不会修改任何聊天数据或影响发送给AI的上下文。由于限制酒馆界面加载的消息数量，因此该功能可以极大减少酒馆的卡顿，尤其是高楼层聊天。
+                            Tính năng này tối ưu hóa trải nghiệm xem các cuộc trò chuyện siêu dài bằng cách điều khiển tùy chọn "Số tin nhắn tải" gốc của SillyTavern. Nó chỉ ảnh hưởng đến số lượng tin nhắn được <strong>【Hiển thị】</strong> trên giao diện chat SillyTavern, hoàn toàn không sửa đổi dữ liệu chat hay ảnh hưởng tới ngữ cảnh gửi cho AI. Do hạn chế số lượng phần tử render trên giao diện, tính năng này giảm giật lag cực kỳ hiệu quả, đặc biệt là với các đoạn chat lên đến hàng ngàn tin nhắn.
                         </p>
                         <p>
-                            开启后，您可以在此处或酒馆的“用户设置”面板中的“要渲染 # 条消息”调整数值，两者自动同步。设为 <code>0</code> 表示不限制（加载全部消息）。
+                            Sau khi bật, bạn có thể chỉnh giá trị tại đây hoặc tại mục "Messages to render" trong bảng "Cài đặt người dùng" của SillyTavern, hai bên sẽ tự động đồng bộ với nhau. Đặt thành <code>0</code> biểu thị không giới hạn (tải toàn bộ tin nhắn).
                         </p>
                         <p>
-                           <strong>示例：</strong> 您设置加载 <code>20</code> 条消息。即使完整对话有1000条，聊天窗口也只加载并显示最后20条。如果需要查看更早的消息，可以点击聊天底部的“Show more messages”按钮。
+                           <strong>Ví dụ:</strong> Bạn đặt tải <code>20</code> tin nhắn. Kể cả đoạn chat có 1000 tin, cửa sổ chat cũng chỉ tải và hiển thị 20 tin cuối cùng. Nếu cần xem các tin trước đó, bạn có thể nhấn nút "Show more messages" ở phía trên cùng của khung chat.
                         </p>
                     </div>
                 </div>
             </div>
         </div>`;
-    Logger.debug('追加弹窗 HTML 到 body');
+    Logger.debug('Chèn HTML popup vào body');
     $('body').append(popupHtml);
 
-    // 添加更新弹窗的遮罩层
+    // Thêm lớp phủ (overlay) cho modal cập nhật
     const overlayHtml = `<div id="hide-helper-modal-overlay" class="hide-modal-overlay"></div>`;
     if ($('#hide-helper-modal-overlay').length === 0) {
         $('body').append(overlayHtml);
     }
 
-    // 添加主题提示弹窗的HTML（如果需要显示）
+    // Thêm HTML popup gợi ý giao diện (nếu cần hiển thị)
     if (!extension_settings[extensionName].theme_notification_viewed) {
         const notificationHtml = `
             <div id="hide-helper-theme-notification" class="hide-helper-notification-popup">
@@ -813,14 +813,14 @@ function createPopup() {
                     <div class="notification-icon">
                         <i class="fa-solid fa-moon"></i>
                     </div>
-                    <h3>插件现已提供白天/黑夜两套UI主题</h3>
-                    <p>可以在【使用说明】页面进行切换。</p>
+                    <h3>Tiện ích hiện đã hỗ trợ 2 bộ giao diện Sáng / Tối</h3>
+                    <p>Bạn có thể chuyển đổi trong trang 【Hướng dẫn sử dụng】.</p>
                     <div class="notification-buttons">
                         <button id="hide-helper-switch-theme-now" class="hide-helper-btn notification-primary-btn">
-                            <i class="fa-solid fa-moon"></i> 立即切换到黑夜主题
+                            <i class="fa-solid fa-moon"></i> Chuyển sang giao diện Tối ngay
                         </button>
                         <button id="hide-helper-notification-close" class="hide-helper-btn notification-secondary-btn">
-                            我已知晓
+                            Đã hiểu
                         </button>
                     </div>
                 </div>
@@ -829,35 +829,35 @@ function createPopup() {
     }
 }
 
-// 获取当前应该使用的隐藏设置 (从全局 extension_settings 读取)
+// Lấy cài đặt ẩn hiện tại cần áp dụng (Đọc từ extension_settings toàn cục)
 function getCurrentHideSettings() {
-    Logger.debug('获取当前隐藏设置');
-    // 检查是否使用全局设置
+    Logger.debug('Lấy cài đặt ẩn hiện tại');
+    // Kiểm tra xem có dùng cài đặt toàn cục không
     if (extension_settings[extensionName]?.useGlobalSettings) {
-        Logger.debug('使用全局设置');
+        Logger.debug('Sử dụng cài đặt toàn cục');
         return extension_settings[extensionName]?.globalHideSettings || null;
     }
 
-    // 使用特定实体的设置
+    // Sử dụng cài đặt của thực thể cụ thể
     const entityId = getCurrentEntityId();
     if (!entityId) {
-        Logger.debug('无法确定实体 ID');
+        Logger.debug('Không thể xác định ID thực thể');
         return null;
     }
     const settings = extension_settings[extensionName]?.settings_by_entity?.[entityId] || null;
-    Logger.debug(`读取实体 "${entityId}" 的设置:`, settings);
+    Logger.debug(`Đọc cài đặt của thực thể "${entityId}":`, settings);
     return settings;
 }
 
-// 保存当前隐藏设置 (到全局 extension_settings)
+// Lưu cài đặt ẩn hiện tại (Vào extension_settings toàn cục)
 function saveCurrentHideSettings(hideLastN) {
     Logger.debug('');
-    Logger.debug('💾💾💾【保存隐藏设置】开始 💾💾💾');
+    Logger.debug('💾💾💾【Lưu cài đặt ẩn】Bắt đầu 💾💾💾');
 
     const context = getContextOptimized();
     if (!context) {
-        Logger.error('【保存隐藏设置】❌ 无法保存设置：上下文不可用');
-        Logger.debug('💾💾💾【保存隐藏设置】结束（失败）💾💾💾');
+        Logger.error('【Lưu cài đặt ẩn】❌ Không thể lưu cài đặt: Ngữ cảnh không khả dụng');
+        Logger.debug('💾💾💾【Lưu cài đặt ẩn】Kết thúc (Thất bại) 💾💾💾');
         Logger.debug('');
         return false;
     }
@@ -867,11 +867,11 @@ function saveCurrentHideSettings(hideLastN) {
     const useGlobalSettings = settings?.useGlobalSettings || false;
     const entityId = getCurrentEntityId();
 
-    Logger.debug(`【保存隐藏设置】📊 保存参数:`);
-    Logger.debug(`【保存隐藏设置】   - hideLastN: ${hideLastN}`);
-    Logger.debug(`【保存隐藏设置】   - 当前聊天长度: ${chatLength}`);
-    Logger.debug(`【保存隐藏设置】   - 使用全局模式: ${useGlobalSettings}`);
-    Logger.debug(`【保存隐藏设置】   - 实体ID: ${entityId || '无法确定'}`);
+    Logger.debug(`【Lưu cài đặt ẩn】📊 Tham số lưu:`);
+    Logger.debug(`【Lưu cài đặt ẩn】   - hideLastN: ${hideLastN}`);
+    Logger.debug(`【Lưu cài đặt ẩn】   - Độ dài chat hiện tại: ${chatLength}`);
+    Logger.debug(`【Lưu cài đặt ẩn】   - Sử dụng chế độ toàn cục: ${useGlobalSettings}`);
+    Logger.debug(`【Lưu cài đặt ẩn】   - ID thực thể: ${entityId || 'Không thể xác định'}`);
 
     const settingsToSave = {
         hideLastN: (hideLastN !== null && hideLastN > 0) ? hideLastN : null,
@@ -882,34 +882,34 @@ function saveCurrentHideSettings(hideLastN) {
     extension_settings[extensionName] = extension_settings[extensionName] || {};
 
     if (useGlobalSettings) {
-        Logger.debug(`【保存隐藏设置】💾 保存到【全局设置】`);
+        Logger.debug(`【Lưu cài đặt ẩn】💾 Lưu vào 【Cài đặt toàn cục】`);
         extension_settings[extensionName].globalHideSettings = settingsToSave;
-        Logger.debug(`【保存隐藏设置】✅ 全局设置已更新:`, settingsToSave);
+        Logger.debug(`【Lưu cài đặt ẩn】✅ Cài đặt toàn cục đã cập nhật:`, settingsToSave);
     } else {
         if (!entityId) {
-            Logger.error('【保存隐藏设置】❌ 无法保存设置：无法确定实体 ID');
-            toastr.error('无法保存设置：无法确定当前角色或群组。');
-            Logger.debug('💾💾💾【保存隐藏设置】结束（失败）💾💾💾');
+            Logger.error('【Lưu cài đặt ẩn】❌ Không thể lưu cài đặt: Không xác định được ID thực thể');
+            toastr.error('Không thể lưu cài đặt: Không xác định được nhân vật hoặc nhóm hiện tại.');
+            Logger.debug('💾💾💾【Lưu cài đặt ẩn】Kết thúc (Thất bại) 💾💾💾');
             Logger.debug('');
             return false;
         }
-        Logger.debug(`【保存隐藏设置】💾 保存到【实体设置】: ${entityId}`);
+        Logger.debug(`【Lưu cài đặt ẩn】💾 Lưu vào 【Cài đặt thực thể】: ${entityId}`);
         extension_settings[extensionName].settings_by_entity = extension_settings[extensionName].settings_by_entity || {};
         extension_settings[extensionName].settings_by_entity[entityId] = settingsToSave;
-        Logger.debug(`【保存隐藏设置】✅ 实体设置已更新:`, settingsToSave);
+        Logger.debug(`【Lưu cài đặt ẩn】✅ Cài đặt thực thể đã cập nhật:`, settingsToSave);
     }
 
     saveSettingsDebounced();
-    Logger.debug(`【保存隐藏设置】✅ 已调用 saveSettingsDebounced()`);
-    Logger.debug(`【保存隐藏设置】✨ 设置已保存: N=${hideLastN}, 模式=${useGlobalSettings ? '全局' : '实体'}`);
-    Logger.debug('💾💾💾【保存隐藏设置】结束💾💾💾');
+    Logger.debug(`【Lưu cài đặt ẩn】✅ Đã gọi saveSettingsDebounced()`);
+    Logger.debug(`【Lưu cài đặt ẩn】✨ Cài đặt đã lưu: N=${hideLastN}, Chế độ=${useGlobalSettings ? 'Toàn cục' : 'Thực thể'}`);
+    Logger.debug('💾💾💾【Lưu cài đặt ẩn】Kết thúc 💾💾💾');
     Logger.debug('');
     return true;
 }
 
-// 更新当前设置显示
+// Cập nhật giao diện hiển thị cài đặt hiện tại
 function updateCurrentHideSettingsDisplay() {
-    Logger.debug('更新隐藏设置显示');
+    Logger.debug('Cập nhật hiển thị cài đặt ẩn');
 
     const settings = extension_settings[extensionName];
     const currentHideSettings = getCurrentHideSettings();
@@ -917,11 +917,11 @@ function updateCurrentHideSettingsDisplay() {
     const $valueDisplay = $('#hide-current-value');
     const $input = $('#hide-last-n');
 
-    // 更新功能总开关状态
+    // Cập nhật trạng thái công tắc tổng
     const autoHideEnabled = settings.autoHideEnabled ?? true;
     $('#hide-auto-process-toggle').prop('checked', autoHideEnabled);
 
-    // 根据开关状态切换输入框和提示文本的显示
+    // Ẩn/hiện ô nhập và thông báo theo trạng thái công tắc
     if (autoHideEnabled) {
         $('#hide-settings-wrapper').show();
         $('#hide-disabled-msg').hide();
@@ -930,29 +930,29 @@ function updateCurrentHideSettingsDisplay() {
         $('#hide-disabled-msg').show();
     }
 
-    // 逻辑判定文案
+    // Nội dung văn bản theo logic trạng thái
     if (!autoHideEnabled) {
-        $statusText.text("自动隐藏楼层功能已禁用");
+        $statusText.text("Tính năng tự động ẩn tầng đã bị tắt");
         $valueDisplay.text("");
     } else if (!currentHideSettings?.hideLastN || currentHideSettings.hideLastN <= 0) {
-        $statusText.text("当前未设置保留值N，自动隐藏不会生效");
+        $statusText.text("Chưa thiết lập giá trị N giữ lại, tự động ẩn chưa có hiệu lực");
         $valueDisplay.text("");
     } else {
-        $statusText.text("当前保留楼层数:");
+        $statusText.text("Số tầng giữ lại hiện tại:");
         $valueDisplay.text(currentHideSettings.hideLastN);
     }
 
-    // 更新输入框 (0 或空都显示为空)
+    // Cập nhật ô nhập (0 hoặc rỗng đều hiển thị trống)
     $input.val(currentHideSettings?.hideLastN > 0 ? currentHideSettings.hideLastN : '');
 
-    // 更新模式切换 UI
+    // Cập nhật UI chuyển đổi chế độ
     const useGlobal = extension_settings[extensionName]?.useGlobalSettings || false;
     $('#hide-mode-toggle').prop('checked', useGlobal);
-    $('#hide-mode-label').text(useGlobal ? '全局模式' : '角色模式');
-    $('#hide-mode-description').text(useGlobal ? '隐藏将应用于所有角色卡' : '隐藏仅对当前角色卡生效');
+    $('#hide-mode-label').text(useGlobal ? 'Chế độ toàn cục' : 'Chế độ nhân vật');
+    $('#hide-mode-description').text(useGlobal ? 'Ẩn sẽ áp dụng cho tất cả thẻ nhân vật' : 'Ẩn chỉ áp dụng cho thẻ nhân vật hiện tại');
 
-	// --- 更新 Limiter 面板 ---
-    // 优先从插件自身的影子变量读取（防篡改兜底），其次读底层，最后读DOM
+	// --- Cập nhật Panel Limiter ---
+    // Ưu tiên đọc từ biến bóng (shadow variable) của plugin (để chống can thiệp trái phép), kế tiếp đọc tầng dưới, cuối cùng đọc DOM
     let nativeTruncation = extension_settings[extensionName].limiter_saved_count;
     if (!nativeTruncation || nativeTruncation <= 0) {
         nativeTruncation = power_user.chat_truncation;
@@ -963,10 +963,10 @@ function updateCurrentHideSettingsDisplay() {
 
     const isLimiterEnabled = extension_settings[extensionName].limiter_isEnabled;
     $('#limiter-enabled').prop('checked', isLimiterEnabled);
-    // 有效值则显示，为 0 时设为空字符串，使其平滑回落到 placeholder 的提示
+    // Nếu có giá trị hợp lệ thì hiển thị, nếu bằng 0 đặt thành chuỗi rỗng để hiển thị placeholder
     $('#limiter-count').val(nativeTruncation > 0 ? nativeTruncation : '');
 
-    // 根据开关状态切换输入框和提示文本的显示
+    // Ẩn/hiện ô nhập và thông báo theo trạng thái công tắc Limiter
     if (isLimiterEnabled) {
         $('#limiter-count-wrapper').show();
         $('#limiter-disabled-msg').hide();
@@ -975,28 +975,28 @@ function updateCurrentHideSettingsDisplay() {
         $('#limiter-disabled-msg').show();
     }
 
-    Logger.debug('完成更新隐藏设置显示');
+    Logger.debug('Hoàn tất cập nhật hiển thị cài đặt ẩn');
 }
 
-// 防抖函数
+// Hàm chống rung (debounce)
 function debounce(fn, delay) {
     let timer;
     return function(...args) {
-        Logger.debug(`防抖: 清除 ${fn.name} 的计时器`);
+        Logger.debug(`Chống rung (debounce): Xóa hẹn giờ của ${fn.name}`);
         clearTimeout(timer);
-        Logger.debug(`防抖: 为 ${fn.name} 设置 ${delay}ms 计时器`);
+        Logger.debug(`Chống rung (debounce): Đặt hẹn giờ ${delay}ms cho ${fn.name}`);
         timer = setTimeout(() => {
-            Logger.debug(`防抖: 执行 ${fn.name}`);
+            Logger.debug(`Chống rung (debounce): Thực thi ${fn.name}`);
             fn.apply(this, args);
         }, delay);
     };
 }
 
 
-// 防抖版本的全量检查
+// Bản chống rung cho kiểm tra toàn lượng
 const runFullHideCheckDebounced = debounce(runFullHideCheck, 200);
 
-// 自动保存防抖
+// Bản chống rung tự động lưu cài đặt
 const saveSettingsAutoDebounced = debounce(() => {
     const val = parseInt($('#hide-last-n').val());
     if (val > 0) {
@@ -1006,67 +1006,67 @@ const saveSettingsAutoDebounced = debounce(() => {
     } else if (val === 0) {
         unhideAllMessages(true);
     } else {
-        // 输入为空
+        // Nhập giá trị rỗng
         saveCurrentHideSettings(null);
         updateCurrentHideSettingsDisplay();
     }
 }, 800);
 
-// 检查是否应该执行隐藏/取消隐藏操作
+// Kiểm tra xem có nên thực hiện thao tác ẩn/bỏ ẩn hay không
 function shouldProcessHiding() {
     Logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    Logger.debug('【隐藏检查】开始判断是否应该处理隐藏');
+    Logger.debug('【Kiểm tra ẩn】Bắt đầu xác định xem có nên xử lý ẩn hay không');
 
-    const mainEnabled = extension_settings[extensionName]?.enabled; // 扩展总开关
-    const autoHideEnabled = extension_settings[extensionName]?.autoHideEnabled ?? true; // 隐藏功能开关
+    const mainEnabled = extension_settings[extensionName]?.enabled; // Công tắc tổng tiện ích
+    const autoHideEnabled = extension_settings[extensionName]?.autoHideEnabled ?? true; // Công tắc tính năng tự động ẩn
 
-    Logger.debug(`【隐藏检查】插件总开关状态: mainEnabled=${mainEnabled}`);
-    Logger.debug(`【隐藏检查】自动隐藏功能状态: autoHideEnabled=${autoHideEnabled}`);
+    Logger.debug(`【Kiểm tra ẩn】Trạng thái công tắc tổng tiện ích: mainEnabled=${mainEnabled}`);
+    Logger.debug(`【Kiểm tra ẩn】Trạng thái tính năng tự động ẩn: autoHideEnabled=${autoHideEnabled}`);
 
     if (!mainEnabled || !autoHideEnabled) {
-        Logger.debug(`【隐藏检查】❌ 插件或自动隐藏功能已禁用，返回 false`);
+        Logger.debug(`【Kiểm tra ẩn】❌ Tiện ích hoặc tính năng tự động ẩn đã bị tắt, trả về false`);
         Logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         return false;
     }
 
     const settings = getCurrentHideSettings();
-    Logger.debug(`【隐藏检查】当前实体设置:`, {
+    Logger.debug(`【Kiểm tra ẩn】Cài đặt thực thể hiện tại:`, {
         exists: !!settings,
         userConfigured: settings?.userConfigured,
         hideLastN: settings?.hideLastN,
         lastProcessedLength: settings?.lastProcessedLength
     });
 
-    // 如果没有配置，或者 hideLastN 是 null/undefined/NaN/0，则不进行自动隐藏处理
+    // Nếu chưa cấu hình, hoặc hideLastN là null/undefined/NaN/0 thì không xử lý tự động ẩn
     if (!settings) {
-        Logger.debug(`【隐藏检查】❌ 设置对象不存在，返回 false`);
+        Logger.debug(`【Kiểm tra ẩn】❌ Đối tượng cài đặt không tồn tại, trả về false`);
         Logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         return false;
     }
     if (!settings.userConfigured) {
-        Logger.debug(`【隐藏检查】❌ 用户未配置 (userConfigured=false)，返回 false`);
+        Logger.debug(`【Kiểm tra ẩn】❌ Người dùng chưa cấu hình (userConfigured=false), trả về false`);
         Logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         return false;
     }
     if (!settings.hideLastN || settings.hideLastN <= 0) {
-        Logger.debug(`【隐藏检查】❌ 隐藏值无效 (hideLastN=${settings.hideLastN})，返回 false`);
+        Logger.debug(`【Kiểm tra ẩn】❌ Giá trị ẩn không hợp lệ (hideLastN=${settings.hideLastN}), trả về false`);
         Logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         return false;
     }
 
-    Logger.debug(`【隐藏检查】✅ 所有检查通过，将执行隐藏操作，保留最新 ${settings.hideLastN} 条消息`);
+    Logger.debug(`【Kiểm tra ẩn】✅ Mọi kiểm tra đã thông qua, sẽ thực hiện thao tác ẩn, giữ lại ${settings.hideLastN} tin nhắn mới nhất`);
     Logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     return true;
 }
 
-// 增量隐藏检查
+// Kiểm tra ẩn tăng dần (Incremental Check)
 async function runIncrementalHideCheck() {
     Logger.debug('');
-    Logger.debug('🔄🔄🔄【增量隐藏检查】开始 🔄🔄🔄');
+    Logger.debug('🔄🔄🔄【Kiểm tra ẩn tăng dần】Bắt đầu 🔄🔄🔄');
 
     if (!shouldProcessHiding()) {
-        Logger.debug('【增量隐藏检查】⛔ shouldProcessHiding 返回 false，跳过增量检查');
-        Logger.debug('🔄🔄🔄【增量隐藏检查】结束（跳过）🔄🔄🔄');
+        Logger.debug('【Kiểm tra ẩn tăng dần】⛔ shouldProcessHiding trả về false, bỏ qua kiểm tra tăng dần');
+        Logger.debug('🔄🔄🔄【Kiểm tra ẩn tăng dần】Kết thúc (Bỏ qua) 🔄🔄🔄');
         Logger.debug('');
         return;
     }
@@ -1074,8 +1074,8 @@ async function runIncrementalHideCheck() {
     const startTime = performance.now();
     const context = getContextOptimized();
     if (!context || !context.chat) {
-        Logger.debug('【增量隐藏检查】⛔ 上下文或聊天数据不可用，中止');
-        Logger.debug('🔄🔄🔄【增量隐藏检查】结束（数据不可用）🔄🔄🔄');
+        Logger.debug('【Kiểm tra ẩn tăng dần】⛔ Ngữ cảnh hoặc dữ liệu chat không khả dụng, hủy bỏ');
+        Logger.debug('🔄🔄🔄【Kiểm tra ẩn tăng dần】Kết thúc (Dữ liệu không khả dụng) 🔄🔄🔄');
         Logger.debug('');
         return;
     }
@@ -1085,118 +1085,118 @@ async function runIncrementalHideCheck() {
     const settings = getCurrentHideSettings() || { hideLastN: 0, lastProcessedLength: 0, userConfigured: false };
     const { hideLastN, lastProcessedLength = 0 } = settings;
 
-    Logger.debug(`【增量隐藏检查】📊 当前状态:`);
-    Logger.debug(`【增量隐藏检查】   - 当前聊天长度: ${currentChatLength}`);
-    Logger.debug(`【增量隐藏检查】   - 保留楼层数 N: ${hideLastN}`);
-    Logger.debug(`【增量隐藏检查】   - 上次处理长度: ${lastProcessedLength}`);
-    Logger.debug(`【增量隐藏检查】   - 用户已配置: ${settings.userConfigured}`);
+    Logger.debug(`【Kiểm tra ẩn tăng dần】📊 Trạng thái hiện tại:`);
+    Logger.debug(`【Kiểm tra ẩn tăng dần】   - Độ dài chat hiện tại: ${currentChatLength}`);
+    Logger.debug(`【Kiểm tra ẩn tăng dần】   - Số tầng giữ lại N: ${hideLastN}`);
+    Logger.debug(`【Kiểm tra ẩn tăng dần】   - Độ dài xử lý lần trước: ${lastProcessedLength}`);
+    Logger.debug(`【Kiểm tra ẩn tăng dần】   - Người dùng đã cấu hình: ${settings.userConfigured}`);
 
     if (currentChatLength === 0 || hideLastN <= 0) {
-        Logger.debug(`【增量隐藏检查】⛔ 聊天为空或 N 值无效，跳过`);
+        Logger.debug(`【Kiểm tra ẩn tăng dần】⛔ Chat rỗng hoặc giá trị N không hợp lệ, bỏ qua`);
         if (currentChatLength !== lastProcessedLength && settings.userConfigured) {
-            Logger.debug(`【增量隐藏检查】💾 长度变化 (${lastProcessedLength} -> ${currentChatLength})，保存设置`);
+            Logger.debug(`【Kiểm tra ẩn tăng dần】💾 Độ dài thay đổi (${lastProcessedLength} -> ${currentChatLength}), lưu cài đặt`);
             saveCurrentHideSettings(hideLastN);
         }
-        Logger.debug('🔄🔄🔄【增量隐藏检查】结束（空聊天或无效N值）🔄🔄🔄');
+        Logger.debug('🔄🔄🔄【Kiểm tra ẩn tăng dần】Kết thúc (Chat rỗng hoặc N không hợp lệ) 🔄🔄🔄');
         Logger.debug('');
         return;
     }
 
     if (currentChatLength <= lastProcessedLength) {
-        Logger.debug(`【增量隐藏检查】⛔ 聊天长度未增加 (${lastProcessedLength} -> ${currentChatLength})，跳过增量处理`);
+        Logger.debug(`【Kiểm tra ẩn tăng dần】⛔ Độ dài chat không tăng (${lastProcessedLength} -> ${currentChatLength}), bỏ qua xử lý tăng dần`);
         if (currentChatLength < lastProcessedLength && settings.userConfigured) {
-            Logger.debug(`【增量隐藏检查】💾 聊天长度减少，保存设置`);
+            Logger.debug(`【Kiểm tra ẩn tăng dần】💾 Độ dài chat giảm đi, lưu cài đặt`);
             saveCurrentHideSettings(hideLastN);
         }
-        Logger.debug('🔄🔄🔄【增量隐藏检查】结束（长度未增加）🔄🔄🔄');
+        Logger.debug('🔄🔄🔄【Kiểm tra ẩn tăng dần】Kết thúc (Độ dài không tăng) 🔄🔄🔄');
         Logger.debug('');
         return;
     }
 
-    // 计算可见范围
+    // Tính toán phạm vi hiển thị
     const targetVisibleStart = Math.max(0, currentChatLength - hideLastN);
     const previousVisibleStart = lastProcessedLength > 0 ? Math.max(0, lastProcessedLength - hideLastN) : 0;
 
-    Logger.debug(`【增量隐藏检查】📐 可见范围计算:`);
-    Logger.debug(`【增量隐藏检查】   - 目标可见起点: ${targetVisibleStart} (索引 >= ${targetVisibleStart} 的消息将可见)`);
-    Logger.debug(`【增量隐藏检查】   - 上次可见起点: ${previousVisibleStart}`);
-    Logger.debug(`【增量隐藏检查】   - 需要检查的索引范围: [${previousVisibleStart}, ${targetVisibleStart})`);
+    Logger.debug(`【Kiểm tra ẩn tăng dần】📐 Tính toán phạm vi hiển thị:`);
+    Logger.debug(`【Kiểm tra ẩn tăng dần】   - Điểm bắt đầu hiển thị mục tiêu: ${targetVisibleStart} (Tin nhắn có index >= ${targetVisibleStart} sẽ hiển thị)`);
+    Logger.debug(`【Kiểm tra ẩn tăng dần】   - Điểm bắt đầu hiển thị lần trước: ${previousVisibleStart}`);
+    Logger.debug(`【Kiểm tra ẩn tăng dần】   - Phạm vi index cần kiểm tra: [${previousVisibleStart}, ${targetVisibleStart})`);
 
     if (targetVisibleStart > previousVisibleStart) {
         const toHideIncrementally = [];
         const startIndex = previousVisibleStart;
         const endIndex = targetVisibleStart;
 
-        Logger.debug(`【增量隐藏检查】🔍 扫描消息 [${startIndex}, ${endIndex})...`);
+        Logger.debug(`【Kiểm tra ẩn tăng dần】🔍 Đang quét tin nhắn [${startIndex}, ${endIndex})...`);
 
         for (let i = startIndex; i < endIndex; i++) {
             if (chat[i]) {
                 if (chat[i].is_system !== true) {
                     toHideIncrementally.push(i);
-                    Logger.debug(`【增量隐藏检查】   ✋ 消息 #${i} 标记为隐藏 (is_system: false -> true)`);
+                    Logger.debug(`【Kiểm tra ẩn tăng dần】   ✋ Tin nhắn #${i} đánh dấu là ẩn (is_system: false -> true)`);
                 } else {
-                    Logger.debug(`【增量隐藏检查】   ⏭️  消息 #${i} 已是隐藏状态，跳过`);
+                    Logger.debug(`【Kiểm tra ẩn tăng dần】   ⏭️  Tin nhắn #${i} đã ở trạng thái ẩn, bỏ qua`);
                 }
             } else {
-                Logger.debug(`【增量隐藏检查】   ❌ 消息 #${i} 不存在，跳过`);
+                Logger.debug(`【Kiểm tra ẩn tăng dần】   ❌ Tin nhắn #${i} không tồn tại, bỏ qua`);
             }
         }
 
         if (toHideIncrementally.length > 0) {
-            Logger.debug(`【增量隐藏检查】🎯 准备隐藏 ${toHideIncrementally.length} 条消息: [${toHideIncrementally.join(', ')}]`);
+            Logger.debug(`【Kiểm tra ẩn tăng dần】🎯 Chuẩn bị ẩn ${toHideIncrementally.length} tin nhắn: [${toHideIncrementally.join(', ')}]`);
 
-            // 更新数据
+            // Cập nhật dữ liệu
             toHideIncrementally.forEach(idx => {
                 if (chat[idx]) {
                     chat[idx].is_system = true;
                 }
             });
-            Logger.debug(`【增量隐藏检查】✅ 聊天数组数据已更新`);
+            Logger.debug(`【Kiểm tra ẩn tăng dần】✅ Dữ liệu mảng chat đã cập nhật`);
 
-            // 更新 DOM
+            // Cập nhật DOM
             try {
                 const hideSelector = toHideIncrementally.map(id => `.mes[mesid="${id}"]`).join(',');
                 if (hideSelector) {
                     $(hideSelector).attr('is_system', 'true');
-                    Logger.debug(`【增量隐藏检查】✅ DOM 更新完成: ${hideSelector}`);
+                    Logger.debug(`【Kiểm tra ẩn tăng dần】✅ Cập nhật DOM hoàn tất: ${hideSelector}`);
                 }
             } catch (error) {
-                Logger.error('【增量隐藏检查】❌ DOM 更新失败:', error);
+                Logger.error('【Kiểm tra ẩn tăng dần】❌ Cập nhật DOM thất bại:', error);
             }
 
-            Logger.debug(`【增量隐藏检查】💾 保存设置`);
+            Logger.debug(`【Kiểm tra ẩn tăng dần】💾 Lưu cài đặt`);
             saveCurrentHideSettings(hideLastN);
 
             const elapsed = (performance.now() - startTime).toFixed(2);
-            Logger.debug(`【增量隐藏检查】✨ 增量隐藏完成！隐藏了 ${toHideIncrementally.length} 条消息，耗时 ${elapsed}ms`);
+            Logger.debug(`【Kiểm tra ẩn tăng dần】✨ Ẩn tăng dần hoàn tất! Đã ẩn ${toHideIncrementally.length} tin nhắn, tốn ${elapsed}ms`);
 
         } else {
-            Logger.debug(`【增量隐藏检查】ℹ️  范围内无需隐藏的消息`);
+            Logger.debug(`【Kiểm tra ẩn tăng dần】ℹ️  Không có tin nhắn nào trong phạm vi cần ẩn`);
             if (settings.lastProcessedLength !== currentChatLength && settings.userConfigured) {
-                Logger.debug(`【增量隐藏检查】💾 保存设置`);
+                Logger.debug(`【Kiểm tra ẩn tăng dần】💾 Lưu cài đặt`);
                 saveCurrentHideSettings(hideLastN);
             }
         }
     } else {
-        Logger.debug(`【增量隐藏检查】ℹ️  可见起点未前进 (targetVisibleStart=${targetVisibleStart} <= previousVisibleStart=${previousVisibleStart})`);
+        Logger.debug(`【Kiểm tra ẩn tăng dần】ℹ️  Điểm bắt đầu hiển thị không tiến thêm (targetVisibleStart=${targetVisibleStart} <= previousVisibleStart=${previousVisibleStart})`);
         if (settings.lastProcessedLength !== currentChatLength && settings.userConfigured) {
-            Logger.debug(`【增量隐藏检查】💾 保存设置`);
+            Logger.debug(`【Kiểm tra ẩn tăng dần】💾 Lưu cài đặt`);
             saveCurrentHideSettings(hideLastN);
         }
     }
 
-    Logger.debug('🔄🔄🔄【增量隐藏检查】结束🔄🔄🔄');
+    Logger.debug('🔄🔄🔄【Kiểm tra ẩn tăng dần】Kết thúc 🔄🔄🔄');
     Logger.debug('');
 }
 
-// 全量隐藏检查
+// Kiểm tra ẩn toàn lượng (Full Check)
 async function runFullHideCheck() {
     Logger.debug('');
-    Logger.debug('🔍🔍🔍【全量隐藏检查】开始 🔍🔍🔍');
+    Logger.debug('🔍🔍🔍【Kiểm tra ẩn toàn lượng】Bắt đầu 🔍🔍🔍');
 
     if (!shouldProcessHiding()) {
-        Logger.debug('【全量隐藏检查】⛔ shouldProcessHiding 返回 false，跳过全量检查');
-        Logger.debug('🔍🔍🔍【全量隐藏检查】结束（跳过）🔍🔍🔍');
+        Logger.debug('【Kiểm tra ẩn toàn lượng】⛔ shouldProcessHiding trả về false, bỏ qua kiểm tra toàn lượng');
+        Logger.debug('🔍🔍🔍【Kiểm tra ẩn toàn lượng】Kết thúc (Bỏ qua) 🔍🔍🔍');
         Logger.debug('');
         return;
     }
@@ -1204,46 +1204,46 @@ async function runFullHideCheck() {
     const startTime = performance.now();
     const context = getContextOptimized();
     if (!context || !context.chat) {
-        Logger.debug('【全量隐藏检查】⛔ 上下文或聊天数据不可用，中止');
-        Logger.debug('🔍🔍🔍【全量隐藏检查】结束（数据不可用）🔍🔍🔍');
+        Logger.debug('【Kiểm tra ẩn toàn lượng】⛔ Ngữ cảnh hoặc dữ liệu chat không khả dụng, hủy bỏ');
+        Logger.debug('🔍🔍🔍【Kiểm tra ẩn toàn lượng】Kết thúc (Dữ liệu không khả dụng) 🔍🔍🔍');
         Logger.debug('');
         return;
     }
 
     const chat = context.chat;
     const currentChatLength = chat.length;
-    Logger.debug(`【全量隐藏检查】📊 当前聊天长度: ${currentChatLength}`);
+    Logger.debug(`【Kiểm tra ẩn toàn lượng】📊 Độ dài chat hiện tại: ${currentChatLength}`);
 
     const settings = getCurrentHideSettings() || { hideLastN: 0, lastProcessedLength: 0, userConfigured: false };
     const { hideLastN, lastProcessedLength, userConfigured } = settings;
 
-    Logger.debug(`【全量隐藏检查】📋 配置信息:`);
-    Logger.debug(`【全量隐藏检查】   - 保留楼层数 N: ${hideLastN}`);
-    Logger.debug(`【全量隐藏检查】   - 用户已配置: ${userConfigured}`);
-    Logger.debug(`【全量隐藏检查】   - 上次处理长度: ${lastProcessedLength}`);
+    Logger.debug(`【Kiểm tra ẩn toàn lượng】📋 Thông tin cấu hình:`);
+    Logger.debug(`【Kiểm tra ẩn toàn lượng】   - Số tầng giữ lại N: ${hideLastN}`);
+    Logger.debug(`【Kiểm tra ẩn toàn lượng】   - Người dùng đã cấu hình: ${userConfigured}`);
+    Logger.debug(`【Kiểm tra ẩn toàn lượng】   - Độ dài xử lý lần trước: ${lastProcessedLength}`);
 
-    // 计算可见起点
+    // Tính toán điểm bắt đầu hiển thị
     const visibleStart = hideLastN <= 0
         ? 0
         : (hideLastN >= currentChatLength
             ? 0
             : Math.max(0, currentChatLength - hideLastN));
 
-    Logger.debug(`【全量隐藏检查】📐 可见范围计算:`);
-    Logger.debug(`【全量隐藏检查】   - 可见起点索引: ${visibleStart}`);
-    Logger.debug(`【全量隐藏检查】   - 可见消息范围: [${visibleStart}, ${currentChatLength}) (共 ${currentChatLength - visibleStart} 条)`);
-    Logger.debug(`【全量隐藏检查】   - 隐藏消息范围: [0, ${visibleStart}) (共 ${visibleStart} 条)`);
+    Logger.debug(`【Kiểm tra ẩn toàn lượng】📐 Tính toán phạm vi hiển thị:`);
+    Logger.debug(`【Kiểm tra ẩn toàn lượng】   - Index bắt đầu hiển thị: ${visibleStart}`);
+    Logger.debug(`【Kiểm tra ẩn toàn lượng】   - Phạm vi tin nhắn hiển thị: [${visibleStart}, ${currentChatLength}) (Tổng cộng ${currentChatLength - visibleStart} tin)`);
+    Logger.debug(`【Kiểm tra ẩn toàn lượng】   - Phạm vi tin nhắn ẩn: [0, ${visibleStart}) (Tổng cộng ${visibleStart} tin)`);
 
     const toHide = [];
     const toShow = [];
     let changed = false;
 
-    Logger.debug(`【全量隐藏检查】🔍 开始扫描所有 ${currentChatLength} 条消息...`);
+    Logger.debug(`【Kiểm tra ẩn toàn lượng】🔍 Bắt đầu quét toàn bộ ${currentChatLength} tin nhắn...`);
 
     for (let i = 0; i < currentChatLength; i++) {
         const msg = chat[i];
         if (!msg) {
-            Logger.debug(`【全量隐藏检查】   ⚠️  索引 ${i}: 消息为空，跳过`);
+            Logger.debug(`【Kiểm tra ẩn toàn lượng】   ⚠️  Index ${i}: Tin nhắn rỗng, bỏ qua`);
             continue;
         }
 
@@ -1251,38 +1251,38 @@ async function runFullHideCheck() {
         const shouldBeHidden = i < visibleStart;
 
         if (shouldBeHidden && !isCurrentlyHidden) {
-            // 应该隐藏但当前未隐藏 → 需要隐藏
+            // Nên ẩn nhưng hiện chưa ẩn → Cần ẩn
             msg.is_system = true;
             toHide.push(i);
             changed = true;
-            Logger.debug(`【全量隐藏检查】   ✋ 索引 ${i}: 隐藏 (is_system: false -> true)`);
+            Logger.debug(`【Kiểm tra ẩn toàn lượng】   ✋ Index ${i}: Ẩn (is_system: false -> true)`);
         } else if (!shouldBeHidden && isCurrentlyHidden) {
-            // 应该显示但当前已隐藏 → 需要显示
+            // Nên hiển thị nhưng hiện đang ẩn → Cần hiển thị
             msg.is_system = false;
             toShow.push(i);
             changed = true;
-            Logger.debug(`【全量隐藏检查】   👁️  索引 ${i}: 显示 (is_system: true -> false)`);
+            Logger.debug(`【Kiểm tra ẩn toàn lượng】   👁️  Index ${i}: Hiển thị (is_system: true -> false)`);
         } else {
-            // 状态正确，无需更改
-            const status = isCurrentlyHidden ? '已隐藏' : '已显示';
-            Logger.debug(`【全量隐藏检查】   ✓  索引 ${i}: ${status} (无需更改)`);
+            // Trạng thái đã chuẩn, không cần thay đổi
+            const status = isCurrentlyHidden ? 'Đã ẩn' : 'Đang hiển thị';
+            Logger.debug(`【Kiểm tra ẩn toàn lượng】   ✓  Index ${i}: ${status} (Không cần đổi)`);
         }
     }
 
-    Logger.debug(`【全量隐藏检查】📊 差异计算结果:`);
-    Logger.debug(`【全量隐藏检查】   - 需要隐藏: ${toHide.length} 条 [${toHide.join(', ') || '无'}]`);
-    Logger.debug(`【全量隐藏检查】   - 需要显示: ${toShow.length} 条 [${toShow.join(', ') || '无'}]`);
-    Logger.debug(`【全量隐藏检查】   - 是否有变化: ${changed}`);
+    Logger.debug(`【Kiểm tra ẩn toàn lượng】📊 Kết quả tính toán chênh lệch:`);
+    Logger.debug(`【Kiểm tra ẩn toàn lượng】   - Cần ẩn: ${toHide.length} tin [${toHide.join(', ') || 'Không có'}]`);
+    Logger.debug(`【Kiểm tra ẩn toàn lượng】   - Cần hiển thị: ${toShow.length} tin [${toShow.join(', ') || 'Không có'}]`);
+    Logger.debug(`【Kiểm tra ẩn toàn lượng】   - Có thay đổi hay không: ${changed}`);
 
     if (changed) {
         try {
-            Logger.debug(`【全量隐藏检查】🔄 开始应用 DOM 更新...`);
+            Logger.debug(`【Kiểm tra ẩn toàn lượng】🔄 Bắt đầu áp dụng cập nhật DOM...`);
 
             if (toHide.length > 0) {
                 const hideSelector = toHide.map(id => `.mes[mesid="${id}"]`).join(',');
                 if (hideSelector) {
                     $(hideSelector).attr('is_system', 'true');
-                    Logger.debug(`【全量隐藏检查】   ✅ 隐藏 DOM: ${hideSelector}`);
+                    Logger.debug(`【Kiểm tra ẩn toàn lượng】   ✅ Ẩn phần tử DOM: ${hideSelector}`);
                 }
             }
 
@@ -1290,49 +1290,49 @@ async function runFullHideCheck() {
                 const showSelector = toShow.map(id => `.mes[mesid="${id}"]`).join(',');
                 if (showSelector) {
                     $(showSelector).attr('is_system', 'false');
-                    Logger.debug(`【全量隐藏检查】   ✅ 显示 DOM: ${showSelector}`);
+                    Logger.debug(`【Kiểm tra ẩn toàn lượng】   ✅ Hiển thị phần tử DOM: ${showSelector}`);
                 }
             }
 
-            Logger.debug(`【全量隐藏检查】✅ DOM 更新完成`);
+            Logger.debug(`【Kiểm tra ẩn toàn lượng】✅ Cập nhật DOM hoàn tất`);
         } catch (error) {
-            Logger.error('【全量隐藏检查】❌ DOM 更新异常:', error);
+            Logger.error('【Kiểm tra ẩn toàn lượng】❌ Lỗi bất thường khi cập nhật DOM:', error);
         }
     } else {
-        Logger.debug(`【全量隐藏检查】ℹ️  无需更改聊天数据或 DOM`);
+        Logger.debug(`【Kiểm tra ẩn toàn lượng】ℹ️  Không cần thay đổi dữ liệu chat hay DOM`);
     }
 
-    // 保存设置
+    // Lưu cài đặt
     if (userConfigured && lastProcessedLength !== currentChatLength) {
-        Logger.debug(`【全量隐藏检查】💾 长度变化 (${lastProcessedLength} -> ${currentChatLength})，保存设置`);
+        Logger.debug(`【Kiểm tra ẩn toàn lượng】💾 Độ dài thay đổi (${lastProcessedLength} -> ${currentChatLength}), lưu cài đặt`);
         saveCurrentHideSettings(hideLastN);
     } else {
-        Logger.debug(`【全量隐藏检查】ℹ️  无需保存设置`);
+        Logger.debug(`【Kiểm tra ẩn toàn lượng】ℹ️  Không cần lưu cài đặt`);
     }
 
     const elapsed = (performance.now() - startTime).toFixed(2);
-    Logger.debug(`【全量隐藏检查】✨ 全量检查完成！隐藏: ${toHide.length}, 显示: ${toShow.length}, 耗时: ${elapsed}ms`);
-    Logger.debug('🔍🔍🔍【全量隐藏检查】结束🔍🔍🔍');
+    Logger.debug(`【Kiểm tra ẩn toàn lượng】✨ Kiểm tra toàn lượng hoàn tất! Ẩn: ${toHide.length}, Hiển thị: ${toShow.length}, tốn: ${elapsed}ms`);
+    Logger.debug('🔍🔍🔍【Kiểm tra ẩn toàn lượng】Kết thúc 🔍🔍🔍');
     Logger.debug('');
 }
 
-// 全部取消隐藏功能
+// Tính năng bỏ ẩn toàn bộ
 async function unhideAllMessages(isFromInputZero = false) {
     Logger.debug('');
-    Logger.debug('👁️👁️👁️【取消所有隐藏】开始 👁️👁️👁️');
+    Logger.debug('👁️👁️👁️【Bỏ ẩn toàn bộ】Bắt đầu 👁️👁️👁️');
 
     const startTime = performance.now();
     const context = getContextOptimized();
 
-    Logger.debug(`【取消所有隐藏】触发方式: ${isFromInputZero ? '输入值设为0' : '点击取消隐藏按钮'}`);
+    Logger.debug(`【Bỏ ẩn toàn bộ】Cách thức kích hoạt: ${isFromInputZero ? 'Giá trị nhập đặt về 0' : 'Nhấn nút bỏ ẩn'}`);
 
     if (context?.chat) {
         const chat = context.chat;
         const unhiddenCount = chat.filter(msg => msg.is_system).length;
 
-        Logger.debug(`【取消所有隐藏】📊 当前状态:`);
-        Logger.debug(`【取消所有隐藏】   - 总消息数: ${chat.length}`);
-        Logger.debug(`【取消所有隐藏】   - 已隐藏消息数: ${unhiddenCount}`);
+        Logger.debug(`【Bỏ ẩn toàn bộ】📊 Trạng thái hiện tại:`);
+        Logger.debug(`【Bỏ ẩn toàn bộ】   - Tổng số tin nhắn: ${chat.length}`);
+        Logger.debug(`【Bỏ ẩn toàn bộ】   - Số tin nhắn đã ẩn: ${unhiddenCount}`);
 
         chat.forEach(msg => {
             if (msg.is_system) {
@@ -1344,50 +1344,50 @@ async function unhideAllMessages(isFromInputZero = false) {
         const domCount = selector.length;
         selector.attr('is_system', 'false');
 
-        Logger.debug(`【取消所有隐藏】✅ 已取消所有消息的隐藏状态`);
-        Logger.debug(`【取消所有隐藏】   - 聊天数组更新: ${unhiddenCount} 条`);
-        Logger.debug(`【取消所有隐藏】   - DOM 元素更新: ${domCount} 个`);
+        Logger.debug(`【Bỏ ẩn toàn bộ】✅ Đã hủy trạng thái ẩn của tất cả tin nhắn`);
+        Logger.debug(`【Bỏ ẩn toàn bộ】   - Cập nhật mảng chat: ${unhiddenCount} tin`);
+        Logger.debug(`【Bỏ ẩn toàn bộ】   - Cập nhật phần tử DOM: ${domCount} phần tử`);
     }
 
-    // 将设置设为空/禁用状态
-    Logger.debug(`【取消所有隐藏】💾 将隐藏设置重置为 null (禁用自动隐藏)`);
+    // Đặt cài đặt về null / trạng thái tắt
+    Logger.debug(`【Bỏ ẩn toàn bộ】💾 Đặt lại cài đặt ẩn về null (Tắt tự động ẩn)`);
     saveCurrentHideSettings(null);
 
     if (isFromInputZero) {
-        Logger.debug(`【取消所有隐藏】✨ 隐藏值已设置为0，已取消当前所有隐藏楼层`);
-        toastr.success('隐藏值已设置为0，立即取消当前所有隐藏楼层');
+        Logger.debug(`【Bỏ ẩn toàn bộ】✨ Giá trị ẩn đã đặt về 0, đã hủy bỏ ẩn toàn bộ các tầng hiện tại`);
+        toastr.success('Giá trị ẩn đã đặt về 0, đã bỏ ẩn tất cả các tầng tin nhắn');
     } else {
-        Logger.debug(`【取消所有隐藏】✨ 已取消当前所有楼层隐藏`);
-        toastr.success('已立即取消当前所有楼层隐藏');
+        Logger.debug(`【Bỏ ẩn toàn bộ】✨ Đã hủy bỏ ẩn toàn bộ các tầng hiện tại`);
+        toastr.success('Đã lập tức hủy bỏ ẩn tất cả các tầng tin nhắn hiện tại');
     }
 
     updateCurrentHideSettingsDisplay();
 
     const elapsed = (performance.now() - startTime).toFixed(2);
-    Logger.debug(`【取消所有隐藏】✅ 完成，耗时 ${elapsed}ms`);
-    Logger.debug('👁️👁️👁️【取消所有隐藏】结束👁️👁️👁️');
+    Logger.debug(`【Bỏ ẩn toàn bộ】✅ Hoàn tất, tốn ${elapsed}ms`);
+    Logger.debug('👁️👁️👁️【Bỏ ẩn toàn bộ】Kết thúc 👁️👁️👁️');
     Logger.debug('');
 }
 
-// ==================== 聊天统计 (Token Stats) 功能 ====================
+// ==================== Tính năng Thống kê chat (Token Stats) ====================
 
-// 更新 Token 统计 UI
+// Cập nhật giao diện thống kê Token
 function updateTokenStatsUI() {
-    Logger.debug("【UI渲染触发】进入 updateTokenStatsUI，尝试重新计算各类 Tokens");
+    Logger.debug("【Kích hoạt kết xuất UI】Vào updateTokenStatsUI, thử tính toán lại các loại Token");
     if (!promptManager) {
-        Logger.warn("【诊断失败】promptManager 为空");
+        Logger.warn("【Chẩn đoán thất bại】promptManager rỗng");
         return;
     }
     if (!promptManager.messages) {
-        Logger.warn("【诊断失败】promptManager.messages 为空");
+        Logger.warn("【Chẩn đoán thất bại】promptManager.messages rỗng");
         return;
     }
     const pm = promptManager;
 
-    // 1. 计算各项 Token 数值
+    // 1. Tính toán các giá trị Token
     const totalTokens = pm.tokenUsage || 0;
     let chatTokens = 0;
-    Logger.debug(`【诊断数据】提取到的当前总 Token (pm.tokenUsage) = ${totalTokens}`);
+    Logger.debug(`【Dữ liệu chẩn đoán】Tổng Token trích xuất được hiện tại (pm.tokenUsage) = ${totalTokens}`);
 
     const findCollectionById = (c, id) => {
         if (c.identifier === id) return c;
@@ -1402,10 +1402,10 @@ function updateTokenStatsUI() {
         return null;
     };
 
-    // 递归收集所有叶子节点中 identifier 以 prefix 开头的 Message 对象
-    // 兼容 squash 前后的两种 tree 结构：
-    //   - squash 前: chatHistory 是 MessageCollection（含 .collection），需要递归进去取子 Message
-    //   - squash 后: chatHistory-N 是散落的 Message 对象（无 .collection），直接收集即可
+    // Đệ quy thu thập tất cả các đối tượng Message ở nút lá có identifier bắt đầu bằng prefix
+    // Tương thích với cả 2 cấu trúc cây trước và sau khi squash:
+    //   - Trước khi squash: chatHistory là MessageCollection (chứa .collection), cần đệ quy vào trong lấy Message con
+    //   - Sau khi squash: chatHistory-N là các đối tượng Message nằm rải rác (không có .collection), trực tiếp thu thập là xong
     const collectLeafMessagesByPrefix = (c, prefix) => {
         const results = [];
         if (!c || !c.collection) return results;
@@ -1413,39 +1413,39 @@ function updateTokenStatsUI() {
             if (!(i instanceof Object)) continue;
             if (i.identifier && i.identifier.startsWith(prefix)) {
                 if (i.collection) {
-                    // MessageCollection 节点 — 递归取子 Message
+                    // Nút MessageCollection — đệ quy lấy Message con
                     results.push(...collectLeafMessagesByPrefix(i, prefix));
                 } else if (typeof i.getTokens === 'function') {
-                    // 叶子 Message 节点 — 直接收集
+                    // Nút lá Message — thu thập trực tiếp
                     results.push(i);
                 }
             } else if (i.collection) {
-                // 非目标节点但有子节点 — 继续递归
+                // Không phải nút mục tiêu nhưng có nút con — tiếp tục đệ quy
                 results.push(...collectLeafMessagesByPrefix(i, prefix));
             }
         }
         return results;
     };
 
-    Logger.debug("【诊断流程】开始在 PromptManager 结构中寻找 identifier 以 'chatHistory' 开头的节点");
+    Logger.debug("【Quy trình chẩn đoán】Bắt đầu tìm nút có identifier bắt đầu bằng 'chatHistory' trong cấu trúc PromptManager");
     const chatMessages = collectLeafMessagesByPrefix(pm.messages, 'chatHistory');
 
     if (chatMessages.length > 0) {
-        Logger.debug(`【诊断成功】找到了 ${chatMessages.length} 条 chatHistory 消息`);
+        Logger.debug(`【Chẩn đoán thành công】Tìm thấy ${chatMessages.length} tin nhắn chatHistory`);
         chatMessages.forEach(msg => {
             if (msg.role === 'user' || msg.role === 'assistant') chatTokens += msg.getTokens();
         });
-        Logger.debug(`【诊断数据】成功计算出聊天 Tokens 累加值 = ${chatTokens}`);
+        Logger.debug(`【Dữ liệu chẩn đoán】Tính toán thành công tổng Token chat = ${chatTokens}`);
     } else {
-        Logger.error("【重大诊断警告】找不到 'chatHistory' 节点！酒馆 Prompt 构建器结构已发生改变。");
+        Logger.error("【Cảnh báo chẩn đoán quan trọng】Không tìm thấy nút 'chatHistory'! Cấu trúc bộ dựng Prompt của SillyTavern đã bị thay đổi.");
         try {
             let availableIdentifiers = [];
             if (pm.messages && pm.messages.collection) {
-                availableIdentifiers = pm.messages.collection.map(c => c.identifier || '未命名节点');
+                availableIdentifiers = pm.messages.collection.map(c => c.identifier || 'Nút chưa đặt tên');
             }
-            Logger.error(`【结构转储】当前可用的顶层 identifiers 有: ${availableIdentifiers.join(', ')}`);
+            Logger.error(`【Trích xuất cấu trúc】Các identifiers cấp cao nhất hiện có: ${availableIdentifiers.join(', ')}`);
         } catch(e) {
-            Logger.error("【结构转储】读取结构时发生意外错误: ", e);
+            Logger.error("【Trích xuất cấu trúc】Xảy ra lỗi bất ngờ khi đọc cấu trúc: ", e);
         }
     }
 
@@ -1453,25 +1453,25 @@ function updateTokenStatsUI() {
     let otherTokens = totalTokens - chatTokens - wiTokens;
     if (otherTokens < 0) otherTokens = 0;
 
-    // 2. 无论面板是否可见，都在后台更新 DOM 内容
+    // 2. Dù panel có hiển thị hay không, đều cập nhật nội dung DOM ngầm bên dưới
     renderTokenStatsContent(totalTokens, chatTokens, wiTokens, otherTokens);
 }
 
-// 渲染 Token 统计内容
+// Kết xuất nội dung thống kê Token
 function renderTokenStatsContent(totalTokens, chatTokens, wiTokens, otherTokens, statsObj = wiDetailedStats) {
     if (!totalTokens && totalTokens !== 0) return;
 
     const getPct = (v) => totalTokens > 0 ? ((v / totalTokens) * 100).toFixed(1) : 0;
 
-    // 渲染概览行
+    // Kết xuất dòng tổng quan
     document.getElementById('tub-row-overview').innerHTML = `
-        <div class="tub-stat-box"><span class="tub-stat-label">总共</span><span class="tub-stat-value">${totalTokens}</span></div>
-        <div class="tub-stat-box"><span class="tub-stat-label">聊天</span><span class="tub-stat-value">${chatTokens}<br><small>${getPct(chatTokens)}%</small></span></div>
-        <div class="tub-stat-box"><span class="tub-stat-label">世界书</span><span class="tub-stat-value">${wiTokens}<br><small>${getPct(wiTokens)}%</small></span></div>
-        <div class="tub-stat-box"><span class="tub-stat-label">其他</span><span class="tub-stat-value">${otherTokens}<br><small>${getPct(otherTokens)}%</small></span></div>
+        <div class="tub-stat-box"><span class="tub-stat-label">Tổng cộng</span><span class="tub-stat-value">${totalTokens}</span></div>
+        <div class="tub-stat-box"><span class="tub-stat-label">Đoạn chat</span><span class="tub-stat-value">${chatTokens}<br><small>${getPct(chatTokens)}%</small></span></div>
+        <div class="tub-stat-box"><span class="tub-stat-label">World Info</span><span class="tub-stat-value">${wiTokens}<br><small>${getPct(wiTokens)}%</small></span></div>
+        <div class="tub-stat-box"><span class="tub-stat-label">Khác</span><span class="tub-stat-value">${otherTokens}<br><small>${getPct(otherTokens)}%</small></span></div>
     `;
 
-    // 计算常量、动态和EJS世界书 tokens
+    // Tính toán token của World Info dạng hằng số, động và EJS
     let totalC = 0, totalD = 0, totalE = 0;
     for (const b in statsObj) {
         if (statsObj[b].constant) statsObj[b].constant.forEach(e => totalC += e.tokens);
@@ -1480,13 +1480,13 @@ function renderTokenStatsContent(totalTokens, chatTokens, wiTokens, otherTokens,
     }
     renderPieView(totalC, totalD, totalE, totalC + totalD + totalE);
 
-    // 渲染条目列表
+    // Kết xuất danh sách các mục
     const books = Object.keys(statsObj);
     let filtersHtml = '';
     if (books.length > 1) {
         filtersHtml = `
             <div class="tub-book-filters">
-                <button class="tub-book-btn active" data-book="all">所有条目</button>
+                <button class="tub-book-btn active" data-book="all">Tất cả mục</button>
                 ${books.map(b => `<button class="tub-book-btn" data-book="${b}">${b}</button>`).join('')}
             </div>
         `;
@@ -1496,12 +1496,12 @@ function renderTokenStatsContent(totalTokens, chatTokens, wiTokens, otherTokens,
         <div id="tub-entries-header-sticky" class="tub-entries-header-sticky">
             <div class="tub-flex-row-between">
                 <div class="tub-flex-row-center">
-                    <div class="tub-section-title tub-title-text tub-section-title-no-margin">已激活条目</div>
+                    <div class="tub-section-title tub-title-text tub-section-title-no-margin">Mục đã kích hoạt</div>
                     <div class="tub-search-wrapper">
                         <svg class="tub-search-icon" id="tub-search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                         </svg>
-                        <input type="text" id="tub-search-input" class="tub-search-input" placeholder="搜索条目...">
+                        <input type="text" id="tub-search-input" class="tub-search-input" placeholder="Tìm kiếm mục...">
                     </div>
                 </div>
                 <div id="tub-entries-total-display" class="tub-entries-total-display"></div>
@@ -1512,7 +1512,7 @@ function renderTokenStatsContent(totalTokens, chatTokens, wiTokens, otherTokens,
     `;
     document.getElementById('tub-entries-section').innerHTML = sectionHtml;
 
-    // 状态保存，用于交叉过滤
+    // Lưu trạng thái để phục vụ lọc kết hợp
     let currentBookFilter = 'all';
     let currentSearchTerm = '';
 
@@ -1529,7 +1529,7 @@ function renderTokenStatsContent(totalTokens, chatTokens, wiTokens, otherTokens,
         for (const b in statsObj) {
             if (currentBookFilter !== 'all' && b !== currentBookFilter) continue;
 
-            // 过滤并压入 ejs
+            // Lọc và đẩy ejs
             if (statsObj[b].ejs) {
                 statsObj[b].ejs.forEach(e => {
                     if (currentSearchTerm && !e.name.toLowerCase().includes(currentSearchTerm)) return;
@@ -1537,7 +1537,7 @@ function renderTokenStatsContent(totalTokens, chatTokens, wiTokens, otherTokens,
                     filterTotalE += e.tokens;
                 });
             }
-            // 过滤并压入 dynamic
+            // Lọc và đẩy dynamic
             if (statsObj[b].dynamic) {
                 statsObj[b].dynamic.forEach(e => {
                     if (currentSearchTerm && !e.name.toLowerCase().includes(currentSearchTerm)) return;
@@ -1545,7 +1545,7 @@ function renderTokenStatsContent(totalTokens, chatTokens, wiTokens, otherTokens,
                     filterTotalD += e.tokens;
                 });
             }
-            // 过滤并压入 constant
+            // Lọc và đẩy constant
             if (statsObj[b].constant) {
                 statsObj[b].constant.forEach(e => {
                     if (currentSearchTerm && !e.name.toLowerCase().includes(currentSearchTerm)) return;
@@ -1556,7 +1556,7 @@ function renderTokenStatsContent(totalTokens, chatTokens, wiTokens, otherTokens,
         }
 
         const filterTotal = filterTotalC + filterTotalD + filterTotalE;
-        // 构建顶部总数显示，如果有 EJS 则显示红色部分
+        // Xây dựng phần hiển thị tổng số trên đỉnh, nếu có EJS sẽ hiển thị phần màu đỏ
         let totalHtml = `${filterTotal} (`;
         if (filterTotalE > 0) totalHtml += `<span class="tub-stat-color-ejs">${filterTotalE}</span> + `;
         totalHtml += `<span class="tub-stat-color-dynamic">${filterTotalD}</span> + <span class="tub-stat-color-constant">${filterTotalC}</span>)`;
@@ -1569,7 +1569,7 @@ function renderTokenStatsContent(totalTokens, chatTokens, wiTokens, otherTokens,
         });
 
         if (!combined.length) {
-            entriesContainer.innerHTML = '<div class="tub-empty-state">没有激活的条目</div>';
+            entriesContainer.innerHTML = '<div class="tub-empty-state">Không có mục nào được kích hoạt</div>';
             return;
         }
 
@@ -1595,12 +1595,12 @@ function renderTokenStatsContent(totalTokens, chatTokens, wiTokens, otherTokens,
                 </div>`);
         });
 
-        // 滚动条逻辑已移除
+        // Đã gỡ bỏ logic thanh cuộn
     };
 
     renderEntriesList();
 
-    // 绑定书籍按钮事件
+    // Gắn sự kiện nút sách
     if (books.length > 1) {
         const btns = document.querySelectorAll('.tub-book-btn');
         btns.forEach(btn => {
@@ -1613,7 +1613,7 @@ function renderTokenStatsContent(totalTokens, chatTokens, wiTokens, otherTokens,
         });
     }
 
-    // 绑定搜索框事件
+    // Gắn sự kiện ô tìm kiếm
     const searchIcon = document.getElementById('tub-search-icon');
     const searchInput = document.getElementById('tub-search-input');
 
@@ -1634,10 +1634,10 @@ function renderTokenStatsContent(totalTokens, chatTokens, wiTokens, otherTokens,
     }, 300));
 }
 
-// 渲染饼图 (增加 EJS 红色切片)
+// Kết xuất biểu đồ tròn (Thêm phần lát cắt đỏ EJS)
 function renderPieView(c, d, e, total) {
     const container = document.getElementById('tub-row-wi-chart');
-    if (!total) { container.innerHTML = '<div class="tub-empty-state">没有激活的世界书</div>'; return; }
+    if (!total) { container.innerHTML = '<div class="tub-empty-state">Không có World Info nào được kích hoạt</div>'; return; }
 
     const cPct = (c / total) * 100;
     const dPct = (d / total) * 100;
@@ -1653,7 +1653,7 @@ function renderPieView(c, d, e, total) {
     const dX = 50 + 30 * Math.cos(dRad);
     const dY = 50 + 30 * Math.sin(dRad);
 
-    // 计算 EJS 切片文字位置
+    // Tính toán tọa độ chữ lát cắt EJS
     const eAngle = (cPct + dPct + ePct / 2) * 3.6;
     const eRad = (eAngle - 90) * (Math.PI / 180);
     const eX = 50 + 30 * Math.cos(eRad);
@@ -1667,28 +1667,28 @@ function renderPieView(c, d, e, total) {
         </div>
         <div class="tub-legend">
             ${e > 0 ? `<div class="tub-legend-item"><span class="tub-dot tub-dot-red"></span>EJS: ${e}</div>` : ''}
-            <div class="tub-legend-item"><span class="tub-dot tub-dot-green"></span>绿灯: ${d}</div>
-            <div class="tub-legend-item"><span class="tub-dot tub-dot-blue"></span>蓝灯: ${c}</div>
+            <div class="tub-legend-item"><span class="tub-dot tub-dot-green"></span>Đèn xanh (Động): ${d}</div>
+            <div class="tub-legend-item"><span class="tub-dot tub-dot-blue"></span>Đèn xanh dương (Hằng): ${c}</div>
         </div>
     `;
 }
 
-// 滚动条自动隐藏/显示逻辑 (已移除)
+// Logic tự động ẩn/hiện thanh cuộn (Đã gỡ bỏ)
 function initScrollbarLogic() {
 }
 
-// ==================== 聊天统计功能结束 ====================
+// ==================== Kết thúc tính năng Thống kê chat ====================
 
-// --- 更新日志弹窗 ---
+// --- Modal nhật ký cập nhật (Changelog) ---
 function createChangelogModalHtml(changelogText) {
     return `
     <div class="hide-modal-box" id="hide-helper-modal-update">
-        <div class="hide-modal-header">插件更新日志</div>
+        <div class="hide-modal-header">Nhật ký cập nhật tiện ích</div>
         <div class="hide-changelog-viewer" id="hide-helper-changelog-content">${changelogText}</div>
-        <div class="hide-update-tip">如果更新失败，可以在酒馆扩展页面的【管理扩展程序】列表中手动更新隐藏助手。如果依然更新失败，则可以尝试删除重装来使用最新版本插件。</div>
+        <div class="hide-update-tip">Nếu cập nhật thất bại, bạn có thể cập nhật thủ công Trợ lý ẩn tầng trong danh sách 【Quản lý tiện ích mở rộng】 trên trang Extensions của SillyTavern. Nếu vẫn thất bại, hãy thử xóa đi cài đặt lại để dùng bản mới nhất.</div>
         <div class="hide-modal-footer">
-            <button id="hide-helper-btn-confirm-update" class="menu_button primary">立即更新</button>
-            <button class="menu_button" onclick="document.getElementById('hide-helper-modal-overlay').classList.remove('visible')">取消</button>
+            <button id="hide-helper-btn-confirm-update" class="menu_button primary">Cập nhật ngay</button>
+            <button class="menu_button" onclick="document.getElementById('hide-helper-modal-overlay').classList.remove('visible')">Hủy</button>
         </div>
     </div>`;
 }
@@ -1697,13 +1697,13 @@ async function showUpdateModal() {
     const overlay = document.getElementById('hide-helper-modal-overlay');
     if (!overlay) return;
 
-    // 先显示 Loading
-    overlay.innerHTML = `<div class="hide-modal-box" style="text-align:center; padding:30px;">Loading changelog...</div>`;
+    // Hiển thị Loading trước
+    overlay.innerHTML = `<div class="hide-modal-box" style="text-align:center; padding:30px;">Đang tải nhật ký cập nhật...</div>`;
     overlay.classList.add('visible');
 
     const changelog = await getChangelog();
 
-    // 简单的 Markdown 转义处理
+    // Xử lý escape ký tự Markdown cơ bản
     const safeLog = changelog.replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
     overlay.innerHTML = createChangelogModalHtml(safeLog);
@@ -1711,20 +1711,20 @@ async function showUpdateModal() {
     const btnUpdate = document.getElementById('hide-helper-btn-confirm-update');
     if (btnUpdate) {
         btnUpdate.onclick = async () => {
-            if (confirm('更新操作将刷新页面，请确保已保存对话。\n确定更新吗？')) {
+            if (confirm('Thao tác cập nhật sẽ làm mới trang, vui lòng đảm bảo đã lưu lại đoạn chat.\nXác nhận cập nhật?')) {
                 btnUpdate.disabled = true;
-                btnUpdate.textContent = "更新中...";
+                btnUpdate.textContent = "Đang cập nhật...";
                 try {
                     const res = await performUpdate();
                     if (res.ok) {
-                        alert('更新指令已发送，页面即将刷新。');
+                        alert('Lệnh cập nhật đã gửi, trang chuẩn bị tải lại.');
                         setTimeout(() => location.reload(), 2000);
                     } else {
-                        alert('更新失败，请查看控制台日志。');
+                        alert('Cập nhật thất bại, vui lòng kiểm tra console log.');
                         btnUpdate.disabled = false;
                     }
                 } catch (e) {
-                    alert('更新请求发生错误: ' + e);
+                    alert('Yêu cầu cập nhật xảy ra lỗi: ' + e);
                     btnUpdate.disabled = false;
                 }
             }
@@ -1733,7 +1733,7 @@ async function showUpdateModal() {
 }
 
 /**
- * 更新版本显示
+ * Cập nhật thông tin hiển thị phiên bản
  */
 function updateVersionDisplay(updateInfo) {
     if (!updateInfo) return;
@@ -1743,7 +1743,7 @@ function updateVersionDisplay(updateInfo) {
     const checkBtn = $('#hide-helper-check-update-btn');
 
     if (currentVersionEl.length) {
-        currentVersionEl.text(updateInfo.localVersion || 'Unknown');
+        currentVersionEl.text(updateInfo.localVersion || 'Không xác định');
     }
 
     if (newBadgeEl.length) {
@@ -1751,24 +1751,24 @@ function updateVersionDisplay(updateInfo) {
             newBadgeEl.show();
             if (checkBtn.length) {
                 checkBtn.addClass('has-update');
-                checkBtn.text('发现新版本');
-                checkBtn.attr('title', `最新版本: ${updateInfo.latestVersion}`);
+                checkBtn.text('Có bản mới');
+                checkBtn.attr('title', `Phiên bản mới nhất: ${updateInfo.latestVersion}`);
             }
         } else {
             newBadgeEl.hide();
             if (checkBtn.length) {
                 checkBtn.removeClass('has-update');
-                checkBtn.text('检查更新');
+                checkBtn.text('Kiểm tra cập nhật');
                 checkBtn.removeAttr('title');
             }
         }
     }
 }
 
-// 日志UI自动关闭计时器 (60分钟熔断)
+// Bộ hẹn giờ tự động đóng UI nhật ký (Cơ chế tự ngắt sau 60 phút)
 let logUiAutoDisableTimer = null;
 
-// 统一关闭日志UI的逻辑（DOM状态 + 设置 + 定时器 + 日志历史）
+// Logic đóng thống nhất cho UI nhật ký (Trạng thái DOM + Cài đặt + Hẹn giờ + Lịch sử Log)
 function disableLogUi(silent = false) {
     clearTimeout(logUiAutoDisableTimer);
     const $toggle = $('#hide-helper-log-ui-toggle');
@@ -1784,59 +1784,59 @@ function disableLogUi(silent = false) {
     saveSettingsDebounced();
     Logger.logHistory = [];
     if (!silent) {
-        // toastr.info('为保障性能，显示日志功能已达60分钟上限，已自动关闭并重置日志级别。');
+        // toastr.info('Để bảo đảm hiệu năng, tính năng hiển thị log đã đạt giới hạn 60 phút và tự động tắt, đưa mức log về 0.');
     }
 }
 
-// 环境信息抓取工具函数 (XPath)
+// Hàm tiện ích thu thập thông tin môi trường (XPath)
 function logEnvironmentDetails() {
-    if (Logger.currentLevel !== 3) return; // 仅在级别3收集
+    if (Logger.currentLevel !== 3) return; // Chỉ thu thập ở mức độ 3
     const getXPathText = (xpath) => {
         try {
             const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
-            return result.singleNodeValue ? result.singleNodeValue.textContent.trim() : "未找到";
-        } catch (e) { return "获取错误"; }
+            return result.singleNodeValue ? result.singleNodeValue.textContent.trim() : "Không tìm thấy";
+        } catch (e) { return "Lỗi khi lấy"; }
     };
     const stVersion = getXPathText('//*[@id="version_display"]');
     const thVersion = getXPathText('//*[@id="tavern_helper"]/div/div[2]/div/div[1]/span');
 
-    Logger.debug(`【调试诊断】SillyTavern 版本: ${stVersion}`);
-    Logger.debug(`【调试诊断】Tavern Helper 版本: ${thVersion}`);
-    Logger.debug(`【调试诊断】Hide Helper 内部设置:`, extension_settings[extensionName]);
+    Logger.debug(`【Chẩn đoán gỡ lỗi】Phiên bản SillyTavern: ${stVersion}`);
+    Logger.debug(`【Chẩn đoán gỡ lỗi】Phiên bản Tavern Helper: ${thVersion}`);
+    Logger.debug(`【Chẩn đoán gỡ lỗi】Cài đặt nội bộ Hide Helper:`, extension_settings[extensionName]);
 }
 
-// 设置UI元素的事件监听器
+// Thiết lập bộ lắng nghe sự kiện cho các phần tử UI
 function setupEventListeners() {
-    Logger.debug('设置事件监听器');
+    Logger.debug('Thiết lập bộ lắng nghe sự kiện');
 
-    // --- 聊天统计 (Token Stats) 事件监听 ---
+    // --- Lắng nghe sự kiện Thống kê chat (Token Stats) ---
 
-    // 挂载 ST-PT 拦截器
+    // Gắn bộ đánh chặn ST-PT
     setupSTPTInterceptor();
 
-    // 世界书扫描完成事件
+    // Sự kiện hoàn tất quét World Info
     eventSource.on(event_types.WORLDINFO_SCAN_DONE, async (data) => {
-        Logger.debug("【诊断事件】收到 WORLDINFO_SCAN_DONE 世界书信号");
+        Logger.debug("【Sự kiện chẩn đoán】Nhận được tín hiệu WORLDINFO_SCAN_DONE của World Info");
 
-        // 仅接受插件主动触发的 dry run 产生的扫描结果，忽略后台扫描
+        // Chỉ chấp nhận kết quả quét được kích hoạt chủ động từ dry run của plugin, bỏ qua quét ngầm
         if (!isOurWiScan) {
-            Logger.debug("【WI扫描过滤】非插件触发的扫描，跳过数据更新");
+            Logger.debug("【Lọc quét WI】Lần quét này không phải do plugin kích hoạt, bỏ qua cập nhật dữ liệu");
             return;
         }
 
         if (!data) {
-            Logger.warn("【诊断警告】世界书扫描事件的 data 为空");
+            Logger.warn("【Cảnh báo chẩn đoán】Dữ liệu data của sự kiện quét World Info bị rỗng");
             return;
         }
         if (!data.activated || !data.activated.entries) {
-            Logger.warn("【诊断警告】未能从 data 中找到 activated.entries 结构", data);
+            Logger.warn("【Cảnh báo chẩn đoán】Không tìm thấy cấu trúc activated.entries từ data", data);
             return;
         }
 
         calculatedWiTokens = 0;
         wiDetailedStats = {};
         const entries = Array.from(data.activated.entries.values());
-        Logger.debug(`【诊断数据】成功提取到被激活的世界书条目数: ${entries.length}`);
+        Logger.debug(`【Dữ liệu chẩn đoán】Trích xuất thành công số lượng mục World Info được kích hoạt: ${entries.length}`);
 
         await Promise.all(entries.map(async (entry) => {
             const tokens = await getTokenCountAsync(entry.content);
@@ -1852,45 +1852,45 @@ function setupEventListeners() {
             calculatedWiTokens += tokens;
         }));
 
-        // 刷新 UI 以显示最新世界书数据
+        // Làm mới UI để hiển thị dữ liệu World Info mới nhất
         updateTokenStatsUI();
     });
 
-    // 世界书更新事件
+    // Sự kiện cập nhật World Info
     if (event_types.WORLDINFO_UPDATED) {
         eventSource.on(event_types.WORLDINFO_UPDATED, () => {
             updateTokenStatsUI();
         });
     }
 
-    // 在外部声明一个合并状态锁，防止单次回合被重复合并
+    // Khai báo một khóa trạng thái hợp nhất bên ngoài để tránh một lượt bị hợp nhất trùng lặp
     let stptMergedThisTurn = false;
 
-    // 每次生成开始时重置锁
+    // Đặt lại khóa mỗi khi bắt đầu một lượt tạo mới
     eventSource.on(event_types.GENERATION_STARTED, () => {
         stptMergedThisTurn = false;
     });
 
-    // 监听生成就绪事件，进行数据缝合
+    // Lắng nghe sự kiện sẵn sàng tạo để ghép nối dữ liệu
     eventSource.on(event_types.CHAT_COMPLETION_SETTINGS_READY, (completion) => {
-        // 🌟【核心机制】：如果是我们自己触发的假发送，立刻终止请求，不让它发给AI！
+        // 🌟【Cơ chế cốt lõi】：Nếu đây là lượt gửi giả lập do chúng ta tự kích hoạt, dừng ngay lập tức, không gửi cho AI!
         if (isFakeGenerating) {
             stopGeneration();
             isFakeGenerating = false;
-            // dry run 拦截后保持 isOurWiScan 一小段时间，
-            // 确保同一轮 WI 扫描的后续事件仍能被接受
+            // Sau khi chặn dry run, giữ isOurWiScan thêm một khoảng ngắn
+            // để đảm bảo các sự kiện quét WI sau đó trong cùng một đợt vẫn được chấp nhận
             setTimeout(() => { isOurWiScan = false; }, 500);
-            Logger.debug('模拟生成已拦截，成功获取最新数据');
+            Logger.debug('Tạo giả lập đã được đánh chặn, lấy dữ liệu mới nhất thành công');
         }
 
         if (!completion || !completion.messages) return;
 
         setTimeout(async () => {
             try {
-                if (stptMergedThisTurn) return; // 防重复执行
+                if (stptMergedThisTurn) return; // Chống thực thi trùng lặp
                 stptMergedThisTurn = true;
 
-                // 去重
+                // Loại bỏ trùng lặp
                 const processedSTPT = new Map();
                 for (const entry of stptInterceptedEntries) {
                     const key = `${entry.world}::${entry.comment}`;
@@ -1898,12 +1898,12 @@ function setupEventListeners() {
                 }
 
                 if (processedSTPT.size > 0) {
-                    console.log(`[隐藏助手] 准备缝合 ST-PT 动态加载条目:`, Array.from(processedSTPT.keys()));
+                    console.log(`[Trợ lý ẩn tầng] Chuẩn bị ghép nối các mục tải động ST-PT:`, Array.from(processedSTPT.keys()));
                 }
 
                 let addedTokens = 0;
 
-                // 🌟【核心修复】：直接将 ST-PT 数据永久合并到酒馆原生的全局变量中
+                // 🌟【Sửa lỗi cốt lõi】：Hợp nhất trực tiếp vĩnh viễn dữ liệu ST-PT vào biến toàn cục gốc của SillyTavern
                 for (const stat of processedSTPT.values()) {
                     const textToMeasure = stat.rawText || '';
                     if (textToMeasure.trim() === '') continue;
@@ -1911,10 +1911,10 @@ function setupEventListeners() {
                     const tk = await getTokenCountAsync(textToMeasure);
                     addedTokens += tk;
 
-                    let finalBookName = stat.world || '未指定世界书';
-                    let finalEntryName = stat.comment || '未知条目';
+                    let finalBookName = stat.world || 'World Info chưa chỉ định';
+                    let finalEntryName = stat.comment || 'Mục không rõ';
 
-                    // 写入原生全局对象 wiDetailedStats
+                    // Ghi vào đối tượng toàn cục gốc wiDetailedStats
                     if (!wiDetailedStats[finalBookName]) {
                         wiDetailedStats[finalBookName] = { constant: [], dynamic: [], ejs: [], total: 0 };
                     }
@@ -1928,60 +1928,60 @@ function setupEventListeners() {
                     wiDetailedStats[finalBookName].total += tk;
                 }
 
-                // 🌟 累加到原生全局 Token 变量
+                // 🌟 Cộng dồn vào biến Token toàn cục gốc
                 calculatedWiTokens += addedTokens;
 
-                // 🌟 强行触发 UI 刷新！因为全局变量已经修改，面板渲染将完美兼容 ST-PT 数据
+                // 🌟 Cưỡng chế làm mới UI! Vì biến toàn cục đã được sửa đổi, việc render panel sẽ tương thích hoàn hảo với dữ liệu ST-PT
                 updateTokenStatsUI();
 
             } catch (err) {
-                console.error("[隐藏助手] 缝合 ST-PT 数据时出现异常:", err);
+                console.error("[Trợ lý ẩn tầng] Xuất hiện ngoại lệ khi ghép nối dữ liệu ST-PT:", err);
             }
         }, 800);
     });
 
-    // --- 聊天统计事件监听结束 ---
+    // --- Kết thúc lắng nghe sự kiện Thống kê chat ---
 
-    // --- 弹窗和标签页交互 ---
+    // --- Tương tác giữa Popup và Tabs ---
 
-    // 记录弹窗打开会话期间是否已刷新过统计数据
+    // Ghi nhận xem trong phiên mở popup hiện tại đã làm mới thống kê chưa
     let hasStatsRefreshedThisSession = false;
 
     $('#hide-helper-wand-button').on('click', function() {
-        Logger.debug('魔杖按钮被点击');
+        Logger.debug('Nút đũa thần được nhấp');
         if (!extension_settings[extensionName]?.enabled) {
-            Logger.debug('插件已禁用');
-            toastr.warning('隐藏助手当前已禁用，请打开酒馆顶部菜单栏的扩展程序页面将插件状态设置为开启。');
+            Logger.debug('Tiện ích đã bị tắt');
+            toastr.warning('Trợ lý ẩn tầng hiện đang bị tắt, vui lòng vào trang Tiện ích mở rộng ở thanh menu trên cùng để bật.');
             return;
         }
-        Logger.debug('插件已启用，更新显示后显示弹窗');
+        Logger.debug('Tiện ích đang bật, hiển thị popup sau khi cập nhật giao diện');
         updateCurrentHideSettingsDisplay();
 
-        // 首次打开时显示红色括号说明提示
+        // Hiển thị chú thích cảnh báo màu đỏ trong ngoặc ở lần mở đầu tiên
         const titleEl = $('#hide-panel-instructions-title');
         if (!extension_settings[extensionName].hide_instructions_viewed) {
-            titleEl.html('使用说明<span class="title-warning-text">（向下滑查看完整内容）</span>');
+            titleEl.html('Hướng dẫn sử dụng<span class="title-warning-text">（Cuộn xuống dưới để xem toàn bộ nội dung）</span>');
             extension_settings[extensionName].hide_instructions_viewed = true;
             saveSettingsDebounced();
         } else {
-            titleEl.text('使用说明');
+            titleEl.text('Hướng dẫn sử dụng');
         }
 
-        // 恢复上一次切换的标签页
+        // Khôi phục lại tab được kích hoạt ở lần trước
         const lastActiveTab = extension_settings[extensionName].last_active_tab || 'hide-panel';
         $('.tab-button').removeClass('active');
         $(`.tab-button[data-tab="${lastActiveTab}"]`).addClass('active');
         $('.tab-panel').removeClass('active');
         $(`.tab-panel[data-tab="${lastActiveTab}"]`).addClass('active');
 
-        // 重置弹窗会话期间的统计刷新状态
+        // Đặt lại trạng thái làm mới thống kê của phiên popup
         hasStatsRefreshedThisSession = false;
 
-        // ---- 【打开弹窗立刻执行统计】 ----
+        // ---- 【Mở popup lập tức chạy thống kê】 ----
         updateTokenStatsUI();
         if (lastActiveTab === 'token-stats-panel') {
-            forceRefreshTokenStats(); // 如果用户一打开就是统计页，直接触发刷新
-            hasStatsRefreshedThisSession = true; // 标记本会话已刷新过
+            forceRefreshTokenStats(); // Nếu người dùng mở ra trúng ngay tab thống kê, kích hoạt làm mới ngay
+            hasStatsRefreshedThisSession = true; // Đánh dấu phiên này đã được làm mới
         }
 
         const $popup = $('#hide-helper-popup');
@@ -1991,12 +1991,12 @@ function setupEventListeners() {
         centerPopup($popup);
         $(window).off('resize.hideHelperMain').on('resize.hideHelperMain', () => centerPopup($popup));
 
-        // 恢复日志UI开关状态
+        // Khôi phục trạng thái công tắc UI log
         const logUiVisible = extension_settings[extensionName].logUiVisible || false;
         const logUiOpenedAt = extension_settings[extensionName].logUiOpenedAt || null;
-        const LOG_UI_TIMEOUT = 60 * 60 * 1000; // 60分钟
+        const LOG_UI_TIMEOUT = 60 * 60 * 1000; // 60 phút
 
-        // 检查是否已超过60分钟熔断时限（跨会话检测）
+        // Kiểm tra xem đã vượt quá thời hạn tự ngắt 60 phút hay chưa (kiểm tra liên phiên)
         if (logUiVisible && logUiOpenedAt && (Date.now() - logUiOpenedAt >= LOG_UI_TIMEOUT)) {
             disableLogUi();
         } else if (logUiVisible) {
@@ -2008,7 +2008,7 @@ function setupEventListeners() {
                 $('#hide-helper-download-log').hide();
             }
 
-            // 启动/续期 60 分钟自动关闭熔断器（计算剩余时间）
+            // Khởi động/gia hạn bộ tự ngắt 60 phút (tính thời gian còn lại)
             clearTimeout(logUiAutoDisableTimer);
             const elapsed = logUiOpenedAt ? Date.now() - logUiOpenedAt : 0;
             const remaining = Math.max(0, LOG_UI_TIMEOUT - elapsed);
@@ -2021,29 +2021,29 @@ function setupEventListeners() {
             $('#hide-helper-download-log').hide();
         }
 
-        // 显示主题提示弹窗（如果是首次打开）
+        // Hiển thị popup gợi ý giao diện (nếu là lần đầu mở)
         if (!extension_settings[extensionName].theme_notification_viewed) {
             showThemeNotification();
         }
     });
 
-    // 关闭弹窗的统一处理函数
+    // Hàm xử lý đóng popup thống nhất
     function closePopup() {
         Logger.debug('');
-        Logger.debug('🚪🚪🚪【关闭弹窗】开始 🚪🚪🚪');
+        Logger.debug('🚪🚪🚪【Đóng popup】Bắt đầu 🚪🚪🚪');
 
-        // 确保输入框的设置已保存
+        // Đảm bảo cài đặt trong ô nhập liệu đã được lưu
         const $input = $('#hide-last-n');
         const inputVal = $input.val();
         const val = parseInt(inputVal);
 
-        Logger.debug(`【关闭弹窗】📋 输入框状态:`);
-        Logger.debug(`【关闭弹窗】   - 原始值: "${inputVal}"`);
-        Logger.debug(`【关闭弹窗】   - 解析后: ${val}`);
-        Logger.debug(`【关闭弹窗】   - 是否有效: ${!isNaN(val) && val >= 0}`);
+        Logger.debug(`【Đóng popup】📋 Trạng thái ô nhập liệu:`);
+        Logger.debug(`【Đóng popup】   - Giá trị gốc: "${inputVal}"`);
+        Logger.debug(`【Đóng popup】   - Sau khi parse: ${val}`);
+        Logger.debug(`【Đóng popup】   - Có hợp lệ không: ${!isNaN(val) && val >= 0}`);
 
         if (!isNaN(val) && val >= 0) {
-            Logger.debug(`【关闭弹窗】💾 立即保存隐藏设置，值=${val}`);
+            Logger.debug(`【Đóng popup】💾 Lưu ngay cài đặt ẩn, giá trị=${val}`);
 
             if (val > 0) {
                 saveCurrentHideSettings(val);
@@ -2053,49 +2053,49 @@ function setupEventListeners() {
 
             updateCurrentHideSettingsDisplay();
 
-            // 立即执行隐藏检查，不使用防抖
+            // Thực thi kiểm tra ẩn ngay lập tức, không dùng debounce
             const settings = extension_settings[extensionName];
             if (settings?.enabled && settings?.autoHideEnabled) {
-                Logger.debug(`【关闭弹窗】🔍 插件已启用且自动隐藏已开启，立即执行全量隐藏检查`);
+                Logger.debug(`【Đóng popup】🔍 Tiện ích và tính năng tự động ẩn đang bật, thực thi kiểm tra ẩn toàn lượng ngay`);
                 runFullHideCheck();
             } else {
-                Logger.debug(`【关闭弹窗】⛔ 插件或自动隐藏未启用，跳过隐藏检查`);
-                Logger.debug(`【关闭弹窗】   - enabled: ${settings?.enabled}`);
-                Logger.debug(`【关闭弹窗】   - autoHideEnabled: ${settings?.autoHideEnabled}`);
+                Logger.debug(`【Đóng popup】⛔ Tiện ích hoặc tự động ẩn chưa bật, bỏ qua kiểm tra ẩn`);
+                Logger.debug(`【Đóng popup】   - enabled: ${settings?.enabled}`);
+                Logger.debug(`【Đóng popup】   - autoHideEnabled: ${settings?.autoHideEnabled}`);
             }
         } else {
-            Logger.debug(`【关闭弹窗】⚠️  输入值无效 (${inputVal})，跳过保存`);
+            Logger.debug(`【Đóng popup】⚠️  Giá trị nhập không hợp lệ (${inputVal}), bỏ qua lưu`);
         }
 
         $('#hide-helper-popup').hide();
         $('#hide-helper-backdrop').hide();
         $(window).off('resize.hideHelperMain');
 
-        Logger.debug(`【关闭弹窗】✅ 弹窗已关闭`);
-        Logger.debug('🚪🚪🚪【关闭弹窗】结束🚪🚪🚪');
+        Logger.debug(`【Đóng popup】✅ Popup đã đóng`);
+        Logger.debug('🚪🚪🚪【Đóng popup】Kết thúc 🚪🚪🚪');
         Logger.debug('');
     }
 
     $('#hide-helper-popup-close-icon').on('click', function() {
-        Logger.debug('【事件】点击弹窗关闭图标');
+        Logger.debug('【Sự kiện】Nhấp biểu tượng đóng popup');
         closePopup();
     });
 
-    // 点击遮罩层关闭弹窗
+    // Nhấp vào backdrop để đóng popup
     $('#hide-helper-backdrop').on('click', function() {
-        Logger.debug('【事件】点击遮罩层');
+        Logger.debug('【Sự kiện】Nhấp vào lớp nền backdrop');
         closePopup();
     });
 
-    // 新增: ESC键快速关闭弹窗
+    // Thêm mới: Phím ESC đóng nhanh popup
     $(document).off('keydown.hideHelperEsc').on('keydown.hideHelperEsc', function(e) {
         if (e.key === 'Escape' && $('#hide-helper-popup').is(':visible')) {
-            Logger.debug('【事件】按下 ESC 键');
+            Logger.debug('【Sự kiện】Nhấn phím ESC');
             closePopup();
         }
     });
 
-    // --- 主题切换事件 ---
+    // --- Sự kiện chuyển đổi giao diện Sáng / Tối ---
     $(document).on('click', '#hide-helper-theme-toggle', function() {
         const currentTheme = extension_settings[extensionName].theme || 'light';
         const newTheme = currentTheme === 'light' ? 'dark' : 'light';
@@ -2103,13 +2103,13 @@ function setupEventListeners() {
         applyTheme(newTheme);
         saveSettingsDebounced();
 
-        // 实时重新渲染聊天统计，以更新行内的渐变色
+        // Render lại thống kê chat theo thời gian thực để cập nhật dải màu gradient trên từng dòng
         if ($('.tab-panel[data-tab="token-stats-panel"]').hasClass('active')) {
             updateTokenStatsUI();
         }
     });
 
-    // --- 日志级别切换事件 ---
+    // --- Sự kiện chuyển đổi mức độ nhật ký (Log Level) ---
     $(document).on('change', '#hide-helper-log-level-select', function() {
         const newLevel = parseInt($(this).val());
         extension_settings[extensionName].logLevel = newLevel;
@@ -2119,20 +2119,20 @@ function setupEventListeners() {
         const $downloadBtn = $('#hide-helper-download-log');
         if (newLevel === 3) {
             $downloadBtn.fadeIn(200);
-            logEnvironmentDetails(); // 切换到3时立马收集一次环境
+            logEnvironmentDetails(); // Chuyển sang mức 3 lập tức thu thập thông tin môi trường
         } else {
             $downloadBtn.fadeOut(200);
-            Logger.logHistory = []; // 非3级别，立刻清空内存垃圾
+            Logger.logHistory = []; // Không phải mức 3, lập tức dọn sạch bộ nhớ log rác
         }
 
         if (newLevel > 0) {
-            console.log(`%c[隐藏助手]`, 'font-weight: bold; color: #28a745;', `日志级别已更改为: ${['零日志', '核心日志', '运行日志', '完整日志'][newLevel]}`);
+            console.log(`%c[Trợ lý ẩn tầng]`, 'font-weight: bold; color: #28a745;', `Mức độ nhật ký đã đổi thành: ${['Tắt log', 'Log cốt lõi', 'Log hoạt động', 'Log đầy đủ'][newLevel]}`);
         }
     });
 
-    // --- 主题提示弹窗事件 ---
+    // --- Sự kiện popup gợi ý giao diện ---
 
-    // 立即切换主题按钮
+    // Nút chuyển ngay sang giao diện Tối
     $(document).on('click', '#hide-helper-switch-theme-now', function() {
         const newTheme = 'dark';
         extension_settings[extensionName].theme = newTheme;
@@ -2141,20 +2141,20 @@ function setupEventListeners() {
         saveSettingsDebounced();
         closeThemeNotification();
 
-        // 实时重新渲染聊天统计
+        // Render lại thống kê chat theo thời gian thực
         if ($('.tab-panel[data-tab="token-stats-panel"]').hasClass('active')) {
             updateTokenStatsUI();
         }
     });
 
-    // 我已知晓按钮
+    // Nút Đã hiểu
     $(document).on('click', '#hide-helper-notification-close', function() {
         extension_settings[extensionName].theme_notification_viewed = true;
         saveSettingsDebounced();
         closeThemeNotification();
     });
 
-    // --- 日志UI显示开关事件 (带60分钟倒计时) ---
+    // --- Sự kiện công tắc hiển thị UI nhật ký (Kèm đếm ngược 60 phút) ---
     $(document).on('change', '#hide-helper-log-ui-toggle', function() {
         const isVisible = $(this).is(':checked');
         extension_settings[extensionName].logUiVisible = isVisible;
@@ -2169,23 +2169,23 @@ function setupEventListeners() {
                 logEnvironmentDetails();
             }
 
-            // 记录开启时间戳，用于跨会话的60分钟熔断检测
+            // Ghi lại mốc thời gian mở, dùng cho kiểm tra tự ngắt 60 phút xuyên suốt các phiên
             extension_settings[extensionName].logUiOpenedAt = Date.now();
             saveSettingsDebounced();
 
-            // 启动 60 分钟自动关闭熔断器
+            // Khởi động bộ tự ngắt 60 phút
             clearTimeout(logUiAutoDisableTimer);
             logUiAutoDisableTimer = setTimeout(() => {
                 disableLogUi();
-            }, 60 * 60 * 1000); // 60分钟
+            }, 60 * 60 * 1000); // 60 phút
 
         } else {
-            // UI 关闭时，连带清理所有设置，防止后台吃性能
+            // Khi đóng UI, dọn dẹp toàn bộ cài đặt liên quan để tránh ngốn hiệu năng nền
             $logLevelWrapper.slideUp(200);
             $downloadBtn.fadeOut(200);
             clearTimeout(logUiAutoDisableTimer);
 
-            // 强制重置日志级别为 0 并清空内存
+            // Cưỡng chế đưa mức log về 0 và dọn sạch bộ nhớ
             extension_settings[extensionName].logLevel = 0;
             extension_settings[extensionName].logUiOpenedAt = null;
             applyLogLevel(0);
@@ -2194,54 +2194,54 @@ function setupEventListeners() {
         }
     });
 
-    // --- 日志下载按钮点击事件 ---
+    // --- Sự kiện nút tải xuống nhật ký ---
     $(document).on('click', '#hide-helper-download-log', function() {
-        logEnvironmentDetails(); // 下载前强制再记录一次环境信息
+        logEnvironmentDetails(); // Ghi thêm một lần thông tin môi trường trước khi tải
         if (Logger.exportLogs()) {
-            toastr.success('日志导出成功！');
+            toastr.success('Xuất file nhật ký thành công!');
         } else {
-            toastr.warning('当前没有可导出的日志内容。');
+            toastr.warning('Hiện không có nội dung nhật ký nào để xuất.');
         }
     });
 
-    // --- 更新检测按钮事件 ---
+    // --- Sự kiện nút kiểm tra cập nhật ---
     $(document).on('click', '#hide-helper-check-update-btn', async function(e) {
         e.stopPropagation();
         const btn = $(this);
 
-        // 如果已经是红色状态(有更新)，点击则弹出更新日志并确认
+        // Nếu đã ở trạng thái màu đỏ (có bản cập nhật mới), nhấp vào sẽ mở modal changelog và xác nhận
         if (btn.hasClass('has-update')) {
             showUpdateModal();
         } else {
             const originalText = btn.text();
 
-            // 禁用按钮，防止重复点击
+            // Vô hiệu hóa nút tránh nhấp nhiều lần
             btn.prop('disabled', true);
-            btn.text('检测中...');
+            btn.text('Đang kiểm tra...');
 
             try {
-                // 强制检查更新
+                // Ép kiểm tra cập nhật
                 const updateInfo = await checkForUpdates(true);
                 updateVersionDisplay(updateInfo);
 
                 if (updateInfo.hasUpdate) {
-                    toastr.success(`发现新版本: ${updateInfo.latestVersion}`);
+                    toastr.success(`Phát hiện phiên bản mới: ${updateInfo.latestVersion}`);
                 } else {
-                    // 增加错误兜底判断，网络不通时不再骗你是最新版
+                    // Thêm kiểm tra dự phòng, khi mất kết nối mạng sẽ không báo nhầm là bản mới nhất
                     if (updateInfo.latestVersion === "Check Failed") {
-                        toastr.error('检测失败，无法连接到 GitHub 仓库');
-                        btn.text('检测失败');
+                        toastr.error('Kiểm tra thất bại, không thể kết nối tới kho lưu trữ GitHub');
+                        btn.text('Kiểm tra thất bại');
                     } else {
-                        toastr.info('当前已是最新版本');
-                        btn.text('已是最新');
+                        toastr.info('Hiện tại đã là phiên bản mới nhất');
+                        btn.text('Đã là mới nhất');
                     }
                     setTimeout(() => {
-                        btn.text('检查更新');
+                        btn.text('Kiểm tra cập nhật');
                     }, 2000);
                 }
             } catch (err) {
-                Logger.error('检测更新失败:', err);
-                toastr.error('检测更新失败，请稍后重试');
+                Logger.error('Kiểm tra cập nhật thất bại:', err);
+                toastr.error('Kiểm tra cập nhật thất bại, vui lòng thử lại sau');
                 btn.text(originalText);
             } finally {
                 btn.prop('disabled', false);
@@ -2249,7 +2249,7 @@ function setupEventListeners() {
         }
     });
 
-    // 新增: 标签页切换逻辑
+    // Thêm mới: Logic chuyển đổi Tab
     $(document).on('click', '.tab-button', function() {
         const targetTab = $(this).data('tab');
         $('.tab-button').removeClass('active');
@@ -2257,59 +2257,59 @@ function setupEventListeners() {
         $('.tab-panel').removeClass('active');
         $(`.tab-panel[data-tab="${targetTab}"]`).addClass('active');
 
-        // 保存当前选择的标签页
+        // Lưu tab vừa chọn
         if (extension_settings[extensionName]) {
             extension_settings[extensionName].last_active_tab = targetTab;
             saveSettingsDebounced();
         }
 
-        // 如果切换到聊天统计标签，更新UI
+        // Nếu chuyển sang tab Thống kê chat, cập nhật UI
         if (targetTab === 'token-stats-panel') {
-            updateTokenStatsUI(); // 先用当前数据渲染，避免空白
-            forceRefreshTokenStats(); // 每次切换都触发模拟生成，确保拿到最新数据
+            updateTokenStatsUI(); // Kết xuất với dữ liệu hiện tại trước để tránh bị trống
+            forceRefreshTokenStats(); // Mỗi lần chuyển tab đều kích hoạt tạo giả lập để đảm bảo số liệu mới nhất
         }
 
-        // 面板内容切换极可能导致高度发生变化，重新计算定位确保依然完美居中
+        // Chuyển nội dung panel rất dễ làm thay đổi chiều cao, tính toán lại để đảm bảo luôn căn giữa hoàn hảo
         centerPopup($('#hide-helper-popup'));
     });
 
-    // --- 全局插件开关 ---
+    // --- Công tắc tiện ích toàn cục ---
     $('#hide-helper-toggle').on('change', function() {
         const isEnabled = $(this).val() === 'enabled';
-        Logger.info(`全局开关状态变更: ${isEnabled ? '启用' : '禁用'}`);
+        Logger.info(`Thay đổi trạng thái công tắc toàn cục: ${isEnabled ? 'Bật' : 'Tắt'}`);
         if (extension_settings[extensionName]) {
             extension_settings[extensionName].enabled = isEnabled;
-            Logger.debug('保存全局设置');
+            Logger.debug('Lưu cài đặt toàn cục');
             saveSettingsDebounced();
         }
 
         if (isEnabled) {
-            Logger.debug('插件已启用，运行全量检查');
-            toastr.success('隐藏助手已启用');
+            Logger.debug('Tiện ích đã bật, chạy kiểm tra toàn lượng');
+            toastr.success('Trợ lý ẩn tầng đã được bật');
             runFullHideCheckDebounced();
         } else {
-            Logger.debug('插件已禁用');
-            toastr.warning('隐藏助手已禁用');
+            Logger.debug('Tiện ích đã tắt');
+            toastr.warning('Trợ lý ẩn tầng đã tắt');
         }
     });
 
-    // --- 面板1: Hide 设置 ---
+    // --- Panel 1: Cài đặt Hide ---
 
-    // 1. 新增：功能总开关切换
+    // 1. Thêm mới: Chuyển đổi công tắc tổng tính năng
     $('#hide-auto-process-toggle').on('change', function() {
         const isEnabled = $(this).is(':checked');
         Logger.debug('');
-        Logger.debug(`🔧【设置】自动隐藏功能开关: ${isEnabled ? 'ON' : 'OFF'}`);
+        Logger.debug(`🔧【Cài đặt】Công tắc tính năng tự động ẩn: ${isEnabled ? 'BẬT' : 'TẮT'}`);
 
         extension_settings[extensionName].autoHideEnabled = isEnabled;
         saveSettingsDebounced();
         updateCurrentHideSettingsDisplay();
 
         if (isEnabled) {
-            Logger.debug('🔧【设置】自动隐藏已启用，执行全量隐藏检查');
+            Logger.debug('🔧【Cài đặt】Tự động ẩn đã bật, thực thi kiểm tra toàn lượng');
             runFullHideCheckDebounced();
         } else {
-            Logger.debug('🔧【设置】自动隐藏已禁用');
+            Logger.debug('🔧【Cài đặt】Tự động ẩn đã tắt');
         }
         Logger.debug('');
     });
@@ -2317,7 +2317,7 @@ function setupEventListeners() {
     $('#hide-mode-toggle').on('change', function() {
         const newMode = $(this).is(':checked');
         Logger.debug('');
-        Logger.debug(`🔧【设置】模式切换: ${newMode ? '全局模式' : '角色模式'}`);
+        Logger.debug(`🔧【Cài đặt】Chuyển đổi chế độ: ${newMode ? 'Chế độ toàn cục' : 'Chế độ nhân vật'}`);
 
         if (extension_settings[extensionName]) {
             if (!extension_settings[extensionName].globalHideSettings) {
@@ -2325,37 +2325,37 @@ function setupEventListeners() {
             }
 
             extension_settings[extensionName].useGlobalSettings = newMode;
-            Logger.debug(`🔧【设置】useGlobalSettings 已更新为: ${newMode}`);
+            Logger.debug(`🔧【Cài đặt】useGlobalSettings đã cập nhật thành: ${newMode}`);
             saveSettingsDebounced();
             updateCurrentHideSettingsDisplay();
-            Logger.debug('🔧【设置】执行全量隐藏检查以应用新模式');
+            Logger.debug('🔧【Cài đặt】Thực thi kiểm tra toàn lượng để áp dụng chế độ mới');
             runFullHideCheckDebounced();
-            toastr.info(`已切换隐藏范围至${newMode ? '全局' : '角色'}模式`);
+            toastr.info(`Đã chuyển phạm vi ẩn sang ${newMode ? 'Chế độ toàn cục' : 'Chế độ nhân vật'}`);
         }
         Logger.debug('');
     });
 
-    // 2. 修改：输入框失去焦点时才保存，避免输入过程中频繁触发保存
+    // 2. Chỉnh sửa: Chỉ lưu khi ô nhập mất tiêu điểm (blur) để tránh kích hoạt lưu liên tục trong lúc gõ
     $('#hide-last-n').on('blur', function() {
         saveSettingsAutoDebounced();
     });
 
-    // 回车键让输入框失去焦点，触发保存
+    // Phím Enter làm ô nhập mất tiêu điểm, từ đó kích hoạt lưu
     $('#hide-last-n').on('keydown', function(e) {
         if (e.key === 'Enter') {
             e.preventDefault();
-            this.blur(); // 失去焦点会触发 blur 事件进而保存
+            this.blur(); // Mất tiêu điểm sẽ kích hoạt sự kiện blur để lưu
         }
     });
 
-    // 3. 修改：取消隐藏按钮
+    // 3. Chỉnh sửa: Nút bỏ ẩn
     $('#hide-unhide-all-btn').on('click', function() {
         unhideAllMessages(false);
     });
 
-    // --- 面板2: Limiter 设置 ---
+    // --- Panel 2: Cài đặt Limiter ---
 
-    // 加上 async 关键字，并接收事件对象 e 判断触发源
+    // Thêm từ khóa async và nhận đối tượng sự kiện e để nhận biết nguồn kích hoạt
     async function onLimiterSettingsChange(e) {
         if (_limiterSyncing) return;
         _limiterSyncing = true;
@@ -2364,13 +2364,13 @@ function setupEventListeners() {
             const settings = extension_settings[extensionName];
             const isEnabled = $('#limiter-enabled').is(':checked');
 
-            // 1. 如果用户点击的是"功能开关"
+            // 1. Nếu người dùng nhấp vào "Công tắc tính năng"
             if (e.target.id === 'limiter-enabled') {
                 settings.limiter_isEnabled = isEnabled;
 
                 if (isEnabled) {
-                    // 当再次启用时，优先抓取酒馆原生的当前值
-                    // （因为在插件关闭期间，用户可能在原生界面修改过）
+                    // Khi bật lại, ưu tiên lấy giá trị hiện tại gốc của SillyTavern
+                    // (Vì trong thời gian tiện ích bị tắt, người dùng có thể đã sửa trên giao diện gốc)
                     let currentNative = Number($('#chat_truncation').val());
                     if (isNaN(currentNative) || currentNative <= 0) {
                         currentNative = power_user.chat_truncation || 0;
@@ -2380,30 +2380,30 @@ function setupEventListeners() {
                     }
                 }
 
-                // 立即更新 UI 显示
+                // Cập nhật hiển thị UI ngay lập tức
                 updateCurrentHideSettingsDisplay();
             }
 
-            // 获取最新确定的数值
+            // Lấy con số đã được xác định mới nhất
             const count = parseInt($('#limiter-count').val(), 10) || 0;
 
             if (isEnabled && count > 0) {
-                // 【核心同步】：将用户设定的值永久保存到插件的影子变量中
+                // 【Đồng bộ cốt lõi】：Lưu vĩnh viễn giá trị người dùng thiết lập vào biến bóng của plugin
                 settings.limiter_saved_count = count;
 
-                // 同步到原生 chat_truncation
+                // Đồng bộ sang chat_truncation gốc
                 power_user.chat_truncation = count;
                 if ($('#chat_truncation').length) {
                     $('#chat_truncation').val(count);
                     $('#chat_truncation_counter').val(count);
-                    $('#chat_truncation').trigger('change'); // 触发原生保存
+                    $('#chat_truncation').trigger('change'); // Kích hoạt lưu gốc
                 }
             }
 
-            // 强制落盘保存到 settings.json
+            // Ép lưu ghi đĩa vào settings.json
             await saveSettings();
 
-            // 如果手动改了输入框的数值，重载当前聊天
+            // Nếu sửa thủ công giá trị trong ô nhập, tải lại đoạn chat hiện tại
             if (isEnabled && count > 0 && e.target.id === 'limiter-count') {
                 const { reloadCurrentChat } = getContext();
                 if (reloadCurrentChat) {
@@ -2416,7 +2416,7 @@ function setupEventListeners() {
     }
     $('#limiter-enabled, #limiter-count').on('change', onLimiterSettingsChange);
 
-    // --- 【原生界面修改反向同步】: 原生 #chat_truncation 变更 → 插件影子变量 ---
+    // --- 【Đồng bộ ngược khi sửa trên giao diện gốc】: #chat_truncation gốc thay đổi → biến bóng của plugin ---
     $('#chat_truncation').on('input', function() {
         if (_limiterSyncing) return;
         _limiterSyncing = true;
@@ -2425,14 +2425,14 @@ function setupEventListeners() {
             const nativeValue = Number($(this).val()) || 0;
             const settings = extension_settings[extensionName];
 
-            // 【静默守护】：无论插件是否开启，只要用户手动在原生界面修改了，就立刻更新影子变量备份
+            // 【Bảo vệ ngầm】：Bất kể tiện ích có bật hay không, chỉ cần người dùng sửa thủ công trên giao diện gốc thì cập nhật ngay sao lưu biến bóng
             if (nativeValue > 0) {
                 settings.limiter_saved_count = nativeValue;
-                // 仅保存插件数据，不需要全量刷新UI
+                // Chỉ lưu dữ liệu tiện ích, không cần làm mới toàn bộ UI
                 saveSettingsDebounced();
             }
 
-            // 如果插件启用了且弹窗打开着，顺便把弹窗里的输入框数值也变一下，做到视觉统一
+            // Nếu tiện ích đang bật và popup đang mở, đổi luôn số trong ô nhập liệu popup để đồng bộ thị giác
             if (settings.limiter_isEnabled && $('#hide-helper-popup').is(':visible')) {
                 $('#limiter-count').val(nativeValue > 0 ? nativeValue : '');
             }
@@ -2441,20 +2441,20 @@ function setupEventListeners() {
         }
     });
 
-    // --- 核心事件监听 (协同工作) ---
+    // --- Lắng nghe các sự kiện cốt lõi (Phối hợp làm việc) ---
 
     eventSource.on(event_types.CHAT_CHANGED, (data) => {
         Logger.debug('');
-        Logger.debug('📢【事件】CHAT_CHANGED - 聊天已切换');
-        cachedContext = null; // 清理缓存
+        Logger.debug('📢【Sự kiện】CHAT_CHANGED - Đã chuyển đổi đoạn chat');
+        cachedContext = null; // Xóa cache
 
-        updateCurrentHideSettingsDisplay(); // 更新所有UI
+        updateCurrentHideSettingsDisplay(); // Cập nhật lại toàn bộ UI
 
         if (extension_settings[extensionName]?.enabled) {
-            Logger.debug('📢【事件】插件已启用，立即执行全量隐藏检查');
-            runFullHideCheck(); // 立即执行，非防抖，确保数据最新
+            Logger.debug('📢【Sự kiện】Tiện ích đang bật, thực thi kiểm tra ẩn toàn lượng ngay');
+            runFullHideCheck(); // Thực thi trực tiếp, không debounce, bảo đảm dữ liệu mới nhất
         } else {
-            Logger.debug('📢【事件】插件未启用，跳过隐藏检查');
+            Logger.debug('📢【Sự kiện】Tiện ích chưa bật, bỏ qua kiểm tra ẩn');
         }
         Logger.debug('');
     });
@@ -2463,14 +2463,14 @@ function setupEventListeners() {
         const context = getContextOptimized();
         const chatLength = context?.chat?.length || 0;
         Logger.debug('');
-        Logger.debug(`📨【事件】${eventType} - 新消息事件`);
-        Logger.debug(`📨【事件】   当前聊天长度: ${chatLength}`);
+        Logger.debug(`📨【Sự kiện】${eventType} - Sự kiện tin nhắn mới`);
+        Logger.debug(`📨【Sự kiện】   Độ dài chat hiện tại: ${chatLength}`);
 
         if (extension_settings[extensionName]?.enabled) {
-            Logger.debug('📨【事件】插件已启用，100ms 后执行增量隐藏检查');
+            Logger.debug('📨【Sự kiện】Tiện ích đang bật, thực thi kiểm tra ẩn tăng dần sau 100ms');
             setTimeout(() => runIncrementalHideCheck(), 100);
         } else {
-            Logger.debug('📨【事件】插件未启用，跳过隐藏检查');
+            Logger.debug('📨【Sự kiện】Tiện ích chưa bật, bỏ qua kiểm tra ẩn');
         }
         Logger.debug('');
     };
@@ -2479,33 +2479,33 @@ function setupEventListeners() {
 
     eventSource.on(event_types.MESSAGE_DELETED, () => {
         Logger.debug('');
-        Logger.debug('🗑️【事件】MESSAGE_DELETED - 消息已删除');
+        Logger.debug('🗑️【Sự kiện】MESSAGE_DELETED - Tin nhắn đã bị xóa');
         if (extension_settings[extensionName]?.enabled) {
-            Logger.debug('🗑️【事件】插件已启用，执行全量隐藏检查');
+            Logger.debug('🗑️【Sự kiện】Tiện ích đang bật, thực thi kiểm tra ẩn toàn lượng');
             runFullHideCheckDebounced();
         } else {
-            Logger.debug('🗑️【事件】插件未启用，跳过隐藏检查');
+            Logger.debug('🗑️【Sự kiện】Tiện ích chưa bật, bỏ qua kiểm tra ẩn');
         }
         Logger.debug('');
     });
 
-    // 生成结束事件，确保最终一致性
+    // Sự kiện kết thúc quá trình tạo văn bản, bảo đảm tính nhất quán sau cùng
     const streamEndEvent = event_types.GENERATION_ENDED;
     eventSource.on(streamEndEvent, () => {
         Logger.debug('');
-        Logger.debug('🏁【事件】GENERATION_ENDED - 生成已结束');
-        // 运行一个完整的检查来纠正任何增量更新中可能出现的问题
+        Logger.debug('🏁【Sự kiện】GENERATION_ENDED - Quá trình tạo đã kết thúc');
+        // Chạy một lần kiểm tra toàn diện để sửa chữa bất kỳ vấn đề nào phát sinh trong quá trình cập nhật tăng dần
         if (extension_settings[extensionName]?.enabled) {
-            Logger.debug('🏁【事件】插件已启用，执行全量隐藏检查确保一致性');
+            Logger.debug('🏁【Sự kiện】Tiện ích đang bật, thực thi kiểm tra toàn lượng để đảm bảo tính nhất quán');
             runFullHideCheckDebounced();
         } else {
-            Logger.debug('🏁【事件】插件未启用，跳过隐藏检查');
+            Logger.debug('🏁【Sự kiện】Tiện ích chưa bật, bỏ qua kiểm tra ẩn');
         }
         Logger.debug('');
     });
 
     // ============================================================
-    // 防止操作弹窗时导致背后的 ST 扩展面板关闭
+    // Ngăn chặn thao tác trên popup làm đóng panel extensions của SillyTavern phía sau
     // ============================================================
     const overlay = document.getElementById('hide-helper-modal-overlay');
     if (overlay) {
@@ -2516,116 +2516,116 @@ function setupEventListeners() {
         overlay.addEventListener('wheel', stopPropagation, { passive: true });
     }
 
-    Logger.debug('事件监听器设置完成');
+    Logger.debug('Thiết lập bộ lắng nghe sự kiện hoàn tất');
 }
 
-// 初始化扩展
+// Khởi tạo tiện ích mở rộng
 jQuery(async () => {
-    Logger.info('开始初始化扩展 (jQuery ready)...');
+    Logger.info('Bắt đầu khởi tạo tiện ích mở rộng (jQuery ready)...');
 
-    // 标志位，确保初始化只执行一次
+    // Cờ đánh dấu đảm bảo khởi tạo chỉ chạy duy nhất một lần
     let isInitialized = false;
     const initializeExtension = () => {
         if (isInitialized) {
-            Logger.info('初始化已运行，跳过');
+            Logger.info('Khởi tạo đã chạy trước đó, bỏ qua');
             return;
         }
         isInitialized = true;
-        Logger.info('由 app_ready 事件触发，运行初始化任务');
+        Logger.info('Kích hoạt bởi sự kiện app_ready, đang chạy các tác vụ khởi tạo');
 
-        // --- 这里是原来 setTimeout 里面的代码 ---
-        // 1. 加载设置并触发迁移检查
+        // --- Mã nguồn vốn nằm trong setTimeout trước đây ---
+        // 1. Tải cài đặt và kích hoạt kiểm tra di chuyển dữ liệu
         loadSettings();
 
-        // 🌟【核心修复】强制镇压手机端 ST 的偷偷重置行为
+        // 🌟【Sửa lỗi cốt lõi】Cưỡng chế trấn áp hành vi tự ý reset số tầng tải của SillyTavern trên điện thoại
         const settings = extension_settings[extensionName];
         if (settings.limiter_isEnabled && settings.limiter_saved_count > 0) {
-            // 如果底层当前值与我们保存的影子变量不一致（比如被手机端偷改成了20）
+            // Nếu giá trị tầng dưới hiện tại không khớp với biến bóng đã lưu (ví dụ bị bản mobile tự ý đổi thành 20)
             if (power_user.chat_truncation !== settings.limiter_saved_count) {
-                Logger.warn(`检测到底层加载数(${power_user.chat_truncation})被篡改，强制恢复为设定值: ${settings.limiter_saved_count}`);
-                // 强行覆盖底层变量
+                Logger.warn(`Phát hiện số lượng tải tầng dưới (${power_user.chat_truncation}) bị can thiệp trái phép, cưỡng chế khôi phục về giá trị đã đặt: ${settings.limiter_saved_count}`);
+                // Cưỡng chế ghi đè biến tầng dưới
                 power_user.chat_truncation = settings.limiter_saved_count;
-                // 强行覆盖 DOM
+                // Cưỡng chế ghi đè DOM
                 if ($('#chat_truncation').length) {
                     $('#chat_truncation').val(settings.limiter_saved_count);
                     $('#chat_truncation_counter').val(settings.limiter_saved_count);
                 }
-                // 让酒馆重新保存 settings.json
+                // Yêu cầu SillyTavern lưu lại settings.json
                 saveSettingsDebounced();
             }
         }
 
-        // 2. 创建 UI (现在依赖于 loadSettings 完成初始化和迁移检查)
+        // 2. Tạo UI (Hiện phụ thuộc vào loadSettings hoàn tất khởi tạo và kiểm tra di chuyển dữ liệu)
         createUI();
 
-        // 2.5 初始化更新检测
+        // 2.5 Khởi tạo kiểm tra cập nhật
         initUpdateCheck().then(updateInfo => {
             if (updateInfo) {
                 updateVersionDisplay(updateInfo);
             }
         });
 
-        // 3. 更新初始 UI 状态
-        Logger.debug('初始设置: 设置全局开关显示');
+        // 3. Cập nhật trạng thái UI ban đầu
+        Logger.debug('Cài đặt ban đầu: Thiết lập hiển thị công tắc toàn cục');
         $('#hide-helper-toggle').val(extension_settings[extensionName]?.enabled ? 'enabled' : 'disabled');
 
-        // 应用保存的主题
+        // Áp dụng giao diện đã lưu
         applyTheme(settings.theme || 'light');
 
-        // 应用保存的日志级别
+        // Áp dụng mức độ nhật ký đã lưu
         applyLogLevel(settings.logLevel || 0);
 
-        // 检测日志UI是否超过60分钟熔断时限（跨会话强制关闭）
+        // Kiểm tra xem UI nhật ký có vượt quá giới hạn tự ngắt 60 phút hay không (buộc đóng xuyên suốt các phiên)
         if (settings.logUiVisible) {
             const LOG_UI_TIMEOUT = 60 * 60 * 1000;
             if (!settings.logUiOpenedAt) {
-                // 旧版本升级：logUiOpenedAt 缺失，无法确认开启时间，强制关闭
-                Logger.warn('日志UI开启时间戳缺失（旧版本升级），初始化时强制关闭');
+                // Nâng cấp từ bản cũ: logUiOpenedAt bị thiếu, không thể xác định thời điểm bật, cưỡng chế tắt
+                Logger.warn('Thiếu mốc thời gian mở UI nhật ký (Nâng cấp từ bản cũ), cưỡng chế tắt khi khởi tạo');
                 disableLogUi();
             } else if (Date.now() - settings.logUiOpenedAt >= LOG_UI_TIMEOUT) {
-                Logger.warn('日志UI已超过60分钟熔断时限，初始化时强制关闭');
+                Logger.warn('UI nhật ký đã vượt quá giới hạn tự ngắt 60 phút, cưỡng chế tắt khi khởi tạo');
                 disableLogUi();
             }
         }
 
-        Logger.debug('初始设置: 更新当前隐藏设置显示');
+        Logger.debug('Cài đặt ban đầu: Cập nhật hiển thị cài đặt ẩn hiện tại');
         updateCurrentHideSettingsDisplay();
 
-        // 4. 初始加载时执行全量检查 (如果插件启用且当前实体有用户配置)
+        // 4. Thực thi kiểm tra toàn lượng khi tải lần đầu (nếu tiện ích bật và thực thể hiện tại đã được người dùng cấu hình)
         if (extension_settings[extensionName]?.enabled) {
-            Logger.debug('🎬【初始化】插件已启用，检查是否需要初始全量检查');
+            Logger.debug('🎬【Khởi tạo】Tiện ích đang bật, kiểm tra xem có cần chạy kiểm tra toàn lượng ban đầu không');
             const initialSettings = getCurrentHideSettings();
-            Logger.debug('🎬【初始化】当前实体的初始设置:', initialSettings);
+            Logger.debug('🎬【Khởi tạo】Cài đặt ban đầu của thực thể hiện tại:', initialSettings);
             if(initialSettings?.userConfigured === true) {
-                Logger.debug('🎬【初始化】✅ 找到用户配置设置 (N=' + initialSettings.hideLastN + ')，运行初始全量隐藏检查');
-                runFullHideCheck(); // 直接运行，非防抖
+                Logger.debug('🎬【Khởi tạo】✅ Tìm thấy cấu hình người dùng (N=' + initialSettings.hideLastN + '), đang chạy kiểm tra ẩn toàn lượng ban đầu');
+                runFullHideCheck(); // Chạy trực tiếp, không debounce
             } else {
-                Logger.debug('🎬【初始化】⛔ 未找到用户配置设置 (userConfigured=false)，跳过初始全量检查');
-                Logger.debug('🎬【初始化】💡 提示：请在弹窗中设置"保留楼层数 N"以启用自动隐藏功能');
+                Logger.debug('🎬【Khởi tạo】⛔ Không tìm thấy cấu hình người dùng (userConfigured=false), bỏ qua kiểm tra toàn lượng ban đầu');
+                Logger.debug('🎬【Khởi tạo】💡 Gợi ý: Vui lòng đặt "Số tầng giữ lại N" trong popup để bật tính năng tự động ẩn');
             }
         } else {
-            Logger.debug('🎬【初始化】⛔ 插件已禁用，跳过初始全量检查');
+            Logger.debug('🎬【Khởi tạo】⛔ Tiện ích đã bị tắt, bỏ qua kiểm tra toàn lượng ban đầu');
         }
-        Logger.debug('🎬【初始化】✨ 初始设置任务完成');
+        Logger.debug('🎬【Khởi tạo】✨ Hoàn tất tác vụ cài đặt ban đầu');
         Logger.debug('');
-        // --- setTimeout 里面的代码结束 ---
+        // --- Kết thúc phần mã nguồn trong setTimeout ---
     };
 
-    // 检查 app_ready 事件类型是否存在
-    // 确保 eventSource 和 event_types 都已加载
+    // Kiểm tra xem kiểu sự kiện app_ready có tồn tại không
+    // Đảm bảo cả eventSource và event_types đều đã được tải
     if (typeof eventSource !== 'undefined' && typeof event_types !== 'undefined' && event_types.APP_READY) {
-        Logger.info(`等待 '${event_types.APP_READY}' 事件进行初始化...`);
+        Logger.info(`Đang đợi sự kiện '${event_types.APP_READY}' để khởi tạo...`);
         eventSource.on(event_types.APP_READY, initializeExtension);
     } else {
-        // 回退: 如果没有 app_ready 事件，或者 eventSource/event_types 加载失败
-        Logger.error('严重错误: APP_READY 事件未找到或 eventSource/event_types 未定义。回退到 2 秒延迟');
+        // Phương án dự phòng: Nếu không có sự kiện app_ready hoặc eventSource/event_types tải thất bại
+        Logger.error('Lỗi nghiêm trọng: Không tìm thấy sự kiện APP_READY hoặc eventSource/event_types chưa được định nghĩa. Quay về chờ 2 giây');
         const initialDelay = 2000;
-        Logger.warn(`使用延迟 ${initialDelay}ms 计划初始设置任务 (回退方案)`);
-        setTimeout(initializeExtension, initialDelay); // 使用相同的 initializeExtension 函数作为回退
+        Logger.warn(`Lên lịch khởi tạo ban đầu với độ trễ ${initialDelay}ms (Phương án dự phòng)`);
+        setTimeout(initializeExtension, initialDelay); // Dùng lại chính hàm initializeExtension làm fallback
     }
 });
 
-// 兜底拦截：在 API 请求前硬性截断 chat 数组，确保只有最近 N 条消息被发送
+// Chốt chặn đánh chặn cuối cùng: Cắt đứt trực tiếp mảng chat trước khi gửi request API, đảm bảo chỉ có N tin nhắn mới nhất được gửi đi
 globalThis.HideHelper_interceptGeneration = function (chat) {
     const settings = extension_settings[extensionName];
     if (!settings?.enabled) return;
@@ -2642,16 +2642,16 @@ globalThis.HideHelper_interceptGeneration = function (chat) {
     if (originalLength > targetLength) {
         const removedCount = originalLength - targetLength;
         Logger.warn('');
-        Logger.warn('🛡️【请求拦截】触发兜底保护机制');
-        Logger.warn(`🛡️【请求拦截】⚠️ 检测到 chat 数组长度 (${originalLength}) 超过保留值 (${targetLength})`);
-        Logger.warn(`🛡️【请求拦截】🔪 强制移除前 ${removedCount} 条消息，确保只发送最新 ${targetLength} 条`);
+        Logger.warn('🛡️【Đánh chặn yêu cầu】Kích hoạt cơ chế bảo vệ chốt chặn cuối cùng');
+        Logger.warn(`🛡️【Đánh chặn yêu cầu】⚠️ Phát hiện độ dài mảng chat (${originalLength}) vượt quá giá trị giữ lại (${targetLength})`);
+        Logger.warn(`🛡️【Đánh chặn yêu cầu】🔪 Cưỡng chế xóa ${removedCount} tin nhắn đầu tiên, đảm bảo chỉ gửi ${targetLength} tin mới nhất`);
 
         while (chat.length > targetLength) {
             chat.shift();
         }
 
-        Logger.warn(`🛡️【请求拦截】✅ 拦截完成，chat 数组已从 ${originalLength} 截断至 ${chat.length}`);
-        Logger.warn(`🛡️【请求拦截】💡 这说明前面的隐藏机制可能失效，此拦截作为最后一道防线`);
+        Logger.warn(`🛡️【Đánh chặn yêu cầu】✅ Đánh chặn hoàn tất, mảng chat đã bị cắt ngắn từ ${originalLength} còn ${chat.length}`);
+        Logger.warn(`🛡️【Đánh chặn yêu cầu】💡 Điều này cho thấy cơ chế ẩn phía trước có thể đã mất hiệu lực, lớp đánh chặn này đóng vai trò như lá chắn phòng thủ cuối`);
         Logger.warn('');
     }
 };

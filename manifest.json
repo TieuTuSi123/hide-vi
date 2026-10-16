@@ -1,5 +1,5 @@
 {
-    "display_name": "隐藏助手",
+    "display_name": "Trợ lý ẩn tầng",
     "loading_order": 14,
     "requires": [],
     "optional": [],
@@ -7,5 +7,5 @@
     "css": "style.css",
     "author": "uhhhh15",
     "version": "3.9.2",
-    "description": "高效批量隐藏/显示消息的工具"
+    "description": "Công cụ ẩn/hiện tin nhắn hàng loạt hiệu quả cao"
 }
