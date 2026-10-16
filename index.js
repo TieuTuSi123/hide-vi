@@ -580,9 +580,9 @@ function createPopup() {
             <!-- Điều hướng tab -->
             <div class="popup-tabs-nav">
                 <div class="tab-button veve" data-tab="hide-panel">Ẩn tầng</div>
-                <div class="tab-button" data-tab="limiter-panel">Giới hạn tải</div>
-                <div class="tab-button" data-tab="token-stats-panel">Thống kê chat</div>
-                <div class="tab-button" data-tab="instructions-panel">Hướng dẫn sử dụng</div>
+                <div class="tab-button" data-tab="limiter-panel">Giới hạn</div>
+                <div class="tab-button" data-tab="token-stats-panel">Thống kê</div>
+                <div class="tab-button" data-tab="instructions-panel">Hướng dẫn</div>
             </div>
 
             <!-- Nội dung các tab -->
@@ -623,7 +623,7 @@ function createPopup() {
                         </div>
                         <div class="hide-helper-popup-footer hide-helper-popup-footer-center">
                             <button id="hide-unhide-all-btn" class="hide-helper-btn">
-                                <i class="fa-solid fa-eye-slash"></i> Bỏ ẩn toàn bộ các tầng trong đoạn chat hiện tại ngay lập tức
+                                <i class="fa-solid fa-eye-slash"></i> Bỏ ẩn toàn bộ tầng trong chat này
                             </button>
                         </div>
 
